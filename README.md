@@ -6,7 +6,7 @@ War Room is a free, open-source agentic OS that runs on your own machine. Your r
 
 ![War Room: a squad of Claude Code agents working through a repo](docs/war-room.png)
 
-> Unofficial fan project, inspired by the Battlefield 6 deploy screen. Not affiliated with or endorsed by Electronic Arts, DICE or Anthropic. See [Credits](#credits).
+> Unofficial fan project, inspired by the look of the Battlefield 6 deploy screen. It is not a copy of the game and contains none of its assets. Not affiliated with, sponsored by or endorsed by Electronic Arts, its studios, or Anthropic. See [Credits](#credits).
 
 **Contents:** [Quick start](#quick-start) · [Your first operation](#your-first-operation) · [The screen](#the-screen) · [How it works](#how-it-works) · [Roles](#roles) · [Cost](#cost) · [FAQ](#faq) · [Troubleshooting](#troubleshooting) · [Command-line options](#command-line-options) · [Security](#security) · [Development](#development)
 
@@ -408,7 +408,7 @@ npm run build        # dist/web + dist/server
 
 ## Credits
 
-- Inspired by the Battlefield 6 deploy screen. Everything here is drawn in code: the camo is generated, the city comes from your repo, and the HUD is CSS. No game assets, logos or fonts are used. "Battlefield" is a trademark of Electronic Arts Inc.
+- The look is inspired by the Battlefield 6 deploy screen, but nothing is taken from the game: no code, art, sound, fonts, logos or data. Everything here is drawn in code: the camo is generated, the city comes from your repo, and the HUD is CSS. The Battlefield name appears here only to describe that inspiration. "Battlefield" and "Battlefield 6" are trademarks of Electronic Arts Inc. All other trademarks belong to their owners.
 - The mascots are original pixel art in the style of the Claude Code CLI mascot. "Claude" and "Claude Code" are trademarks of Anthropic.
 - The control-plane design follows patterns from [Paperclip](https://github.com/paperclipai/paperclip) and [Gas Town](https://github.com/gastownhall/gastown).
 
