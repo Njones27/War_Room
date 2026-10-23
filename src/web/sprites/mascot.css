@@ -1,0 +1,322 @@
+/* Mascot animation. Transforms on SVG children use viewBox units (1px = 1 sprite pixel),
+   and step timing keeps motion on the pixel grid. */
+.mascot {
+  display: block;
+  overflow: visible;
+  image-rendering: pixelated;
+}
+.mascot g {
+  transform-box: view-box;
+}
+.mascot.dim {
+  filter: grayscale(1) brightness(0.75);
+  opacity: 0.6;
+}
+
+/* Idle breathing + blink for everyone. */
+.mascot .m-upper {
+  animation: m-bob 2.4s steps(1) infinite;
+}
+.mascot .m-eyes {
+  transform-origin: 11px 14px;
+  animation: m-blink 4.6s steps(1) infinite;
+}
+@keyframes m-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+@keyframes m-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.2);
+  }
+}
+
+/* Walking: alternate leg pairs. */
+.act-walking .m-legsA {
+  animation: m-step 0.36s steps(1) infinite;
+}
+.act-walking .m-legsB {
+  animation: m-step 0.36s steps(1) infinite reverse;
+}
+.act-walking .m-upper {
+  animation: m-bob 0.36s steps(1) infinite;
+}
+@keyframes m-step {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+/* Building: swing the hammer, sparks flash on impact. */
+.act-building .p-hammer {
+  transform-origin: 19px 14px;
+  animation: m-hammer 0.5s steps(2) infinite;
+}
+.act-building .m-armR {
+  animation: m-arm-swing 0.5s steps(2) infinite;
+}
+.act-building .p-sparks {
+  animation: m-flash 0.5s steps(1) infinite;
+}
+@keyframes m-hammer {
+  0% {
+    transform: rotate(-40deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+  100% {
+    transform: rotate(-40deg);
+  }
+}
+@keyframes m-arm-swing {
+  0%,
+  100% {
+    transform: translateY(-2px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+@keyframes m-flash {
+  0%,
+  45% {
+    opacity: 0;
+  }
+  50%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Reading: eyes scan the page. */
+.act-reading .m-eyes {
+  animation: m-scan 1.6s steps(1) infinite;
+}
+.act-reading .m-armL,
+.act-reading .m-armR {
+  transform: translateY(1px);
+}
+@keyframes m-scan {
+  0%,
+  100% {
+    transform: translate(-1px, 1px);
+  }
+  50% {
+    transform: translate(1px, 1px);
+  }
+}
+
+/* Scouting: binoculars up, sweep. */
+.act-scouting .m-armL,
+.act-scouting .m-armR {
+  transform: translateY(-3px);
+}
+.act-scouting .p-binoculars,
+.act-scouting .m-gear {
+  animation: m-sweep 1.8s steps(1) infinite;
+}
+@keyframes m-sweep {
+  0%,
+  100% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+}
+
+/* Commands: typing at the terminal. */
+.act-commands .m-armL {
+  animation: m-type 0.24s steps(1) infinite;
+}
+.act-commands .m-armR {
+  animation: m-type 0.24s steps(1) infinite reverse;
+}
+.act-commands .p-cursor {
+  animation: m-flash 0.9s steps(1) infinite;
+}
+@keyframes m-type {
+  0%,
+  100% {
+    transform: translateY(-1px);
+  }
+  50% {
+    transform: translateY(0);
+  }
+}
+
+/* Testing: shake the flask, bubbles rise. */
+.act-testing .p-flask {
+  transform-origin: 19px 13px;
+  animation: m-shake-rot 0.4s steps(2) infinite;
+}
+.act-testing .m-armR {
+  transform: translateY(-2px);
+}
+.act-testing .p-bubbles {
+  animation: m-rise 1.2s steps(3) infinite;
+}
+@keyframes m-shake-rot {
+  0%,
+  100% {
+    transform: rotate(-12deg);
+  }
+  50% {
+    transform: rotate(12deg);
+  }
+}
+@keyframes m-rise {
+  0% {
+    transform: translateY(2px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-3px);
+    opacity: 0;
+  }
+}
+
+/* Web recon: radio up, signal waves pulse. */
+.act-webrecon .m-armR {
+  transform: translateY(-3px);
+}
+.act-webrecon .p-waves {
+  animation: m-flash 0.8s steps(1) infinite;
+}
+
+/* Directing: megaphone, shout lines. */
+.act-directing .m-armR {
+  transform: translateY(-2px);
+}
+.act-directing .p-shout {
+  animation: m-flash 0.6s steps(1) infinite;
+}
+.act-directing .p-megaphone {
+  animation: m-sweep 1.2s steps(1) infinite;
+}
+
+/* Planning: clipboard held, pen taps. */
+.act-planning .m-armR {
+  animation: m-type 0.6s steps(1) infinite;
+}
+
+/* Reporting: paper raised high. */
+.act-reporting .m-armR {
+  transform: translate(0, -6px);
+}
+.act-reporting .p-report {
+  animation: m-bob 0.8s steps(1) infinite;
+}
+
+/* Receiving orders: salute. */
+.act-orders .m-armR {
+  transform: translate(-2px, -5px);
+}
+
+/* Needs you: wave and flash the alert. */
+.act-needs_you .m-armR {
+  animation: m-wave 0.5s steps(1) infinite;
+}
+.act-needs_you .p-alert,
+.act-error .p-alertRed {
+  animation: m-alert 0.7s steps(1) infinite;
+}
+@keyframes m-wave {
+  0%,
+  100% {
+    transform: translateY(-6px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes m-alert {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+/* Error: shake. */
+.act-error .m-all {
+  animation: m-shake 0.5s steps(2) infinite;
+}
+@keyframes m-shake {
+  0%,
+  100% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+}
+
+/* Thinking: three dots light up in turn. */
+.act-thinking .p-dots rect:nth-child(1) {
+  animation: m-dot 1.2s steps(1) infinite;
+}
+.act-thinking .p-dots rect:nth-child(2) {
+  animation: m-dot 1.2s steps(1) 0.4s infinite;
+}
+.act-thinking .p-dots rect:nth-child(3) {
+  animation: m-dot 1.2s steps(1) 0.8s infinite;
+}
+@keyframes m-dot {
+  0%,
+  33% {
+    opacity: 1;
+  }
+  34%,
+  100% {
+    opacity: 0.25;
+  }
+}
+
+/* Asleep: slow breathing, z drifts up. */
+.act-asleep .m-upper,
+.act-offline .m-upper {
+  animation: m-bob 4s steps(1) infinite;
+}
+.act-asleep .p-zzz {
+  animation: m-rise 2.4s steps(4) infinite;
+}
+.act-asleep .m-eyes,
+.act-offline .m-eyes {
+  animation: none;
+}
+
+/* Support headset antenna tip blinks. */
+.gear-headset rect[fill="#fd8664"] {
+  animation: m-flash 1.4s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mascot *,
+  .mascot {
+    animation: none !important;
+  }
+}
