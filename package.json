@@ -1,0 +1,74 @@
+{
+  "name": "war-room",
+  "version": "0.1.0",
+  "description": "A tactical command map and agentic OS for your local Claude Code agents.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Njones27",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Njones27/War_Room.git"
+  },
+  "keywords": [
+    "claude-code",
+    "agents",
+    "agentic-os",
+    "orchestration",
+    "multi-agent"
+  ],
+  "bin": {
+    "war-room": "bin/war-room.mjs"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "tsx src/server/index.ts --dev",
+    "dev:watch": "tsx watch --clear-screen=false src/server/index.ts --dev",
+    "demo": "tsx src/server/index.ts --dev --demo",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ws": "8.22.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "optionalDependencies": {
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "@fontsource/chakra-petch": "^5.3.0",
+    "@fontsource/rajdhani": "^5.3.0",
+    "@fontsource/saira-semi-condensed": "^5.3.0",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.186.0",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.1.2",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.186.1",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5",
+    "zustand": "5.0.16"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "roles",
+    "README.md",
+    "LICENSE"
+  ]
+}

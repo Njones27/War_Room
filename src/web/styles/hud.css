@@ -1,0 +1,2243 @@
+/* ── Map ──────────────────────────────────────────────────────────────────── */
+.war-room {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.map-view,
+.map-canvas,
+.map-lines,
+.map-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.map-canvas {
+  display: block;
+  touch-action: none;
+}
+.map-lines,
+.map-overlay {
+  pointer-events: none;
+}
+.map-view.ping .map-canvas {
+  cursor: crosshair !important;
+}
+
+.ln-command {
+  stroke: rgba(112, 235, 252, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+}
+.ln-squad {
+  stroke: rgba(128, 190, 117, 0.45);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
+}
+.ln-move {
+  stroke: rgba(253, 176, 100, 0.85);
+  stroke-width: 2;
+  stroke-dasharray: 7 6;
+}
+.ln-objective {
+  stroke: rgba(230, 232, 115, 0.7);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 6;
+}
+
+/* Agent markers: BF6 objective icons with a mascot standing on top. */
+.agent-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.agent-marker > * {
+  pointer-events: auto;
+}
+.am-mascot {
+  position: absolute;
+  left: -22px;
+  top: -66px;
+  cursor: pointer;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55));
+}
+.agent-marker[data-facing="-1"] .am-mascot .mascot {
+  transform: scaleX(-1);
+}
+.am-shape {
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 17px;
+}
+.am-shape span {
+  position: relative;
+  z-index: 1;
+}
+.am-shape::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  transition: background 0.2s;
+}
+.am-shape.circle::before {
+  border-radius: 50%;
+  border: 2px solid var(--cyan-line);
+  background: var(--cyan-fill);
+  box-shadow: 0 0 10px rgba(112, 235, 252, 0.35);
+}
+.am-shape.circle {
+  color: var(--cyan);
+}
+.am-shape.square::before {
+  inset: 5px;
+  border: 1.5px solid rgba(216, 222, 226, 0.55);
+  background: rgba(40, 50, 58, 0.75);
+}
+.am-shape.square {
+  color: var(--text);
+  font-size: 14px;
+}
+.am-shape.diamond::before {
+  inset: 4px;
+  transform: rotate(45deg);
+  border: 2px solid #ffb39a;
+  background: rgba(205, 80, 60, 0.75);
+}
+.am-shape.diamond {
+  color: #ffe8e0;
+}
+.ms-needs .am-shape.diamond::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: rotate(45deg);
+  border: 2px solid var(--orange);
+  animation: pulse-ring 1.2s ease-out infinite;
+}
+@keyframes pulse-ring {
+  from {
+    transform: rotate(45deg) scale(0.9);
+    opacity: 0.9;
+  }
+  to {
+    transform: rotate(45deg) scale(1.8);
+    opacity: 0;
+  }
+}
+.ms-error .am-shape.diamond::before {
+  background: rgba(190, 50, 45, 0.85);
+}
+.ms-offline .am-shape {
+  opacity: 0.55;
+}
+
+.agent-marker.external .am-shape {
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
+.agent-marker.external .am-shape.square::before,
+.agent-marker.external .am-shape.circle::before {
+  border-radius: 50%;
+  border: 1.5px solid rgba(230, 236, 240, 0.8);
+  background: rgba(20, 28, 34, 0.8);
+  box-shadow: none;
+}
+.agent-marker.external .am-shape {
+  color: var(--text);
+}
+.agent-marker.external .am-mascot {
+  transform: scale(0.8);
+  transform-origin: 50% 100%;
+  top: -60px;
+}
+
+/* Teammates: BF6 squad mates, smaller and green. */
+.agent-marker.mate .am-shape {
+  left: -12px;
+  top: -12px;
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+}
+.agent-marker.mate .am-shape.circle::before,
+.agent-marker.mate .am-shape.square::before {
+  inset: 3px;
+  border-radius: 50%;
+  border: 2px solid var(--green);
+  background: rgba(40, 80, 40, 0.75);
+  box-shadow: 0 0 8px rgba(128, 190, 117, 0.45);
+}
+.agent-marker.mate .am-shape.circle,
+.agent-marker.mate .am-shape.square {
+  color: #d6f5cf;
+}
+.agent-marker.mate .am-mascot {
+  transform: scale(0.82);
+  transform-origin: 50% 100%;
+  top: -58px;
+}
+.agent-marker.mate .am-label {
+  color: #c9efc1;
+}
+
+.am-brackets {
+  position: absolute;
+  left: -24px;
+  top: -24px;
+  width: 48px;
+  height: 48px;
+  pointer-events: none;
+}
+.am-brackets i {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 6px solid transparent;
+}
+.am-brackets i:nth-child(1) {
+  left: 0;
+  top: 0;
+  border-left-color: var(--yellow);
+  border-top-color: var(--yellow);
+}
+.am-brackets i:nth-child(2) {
+  right: 0;
+  top: 0;
+  border-right-color: var(--yellow);
+  border-top-color: var(--yellow);
+}
+.am-brackets i:nth-child(3) {
+  left: 0;
+  bottom: 0;
+  border-left-color: var(--yellow);
+  border-bottom-color: var(--yellow);
+}
+.am-brackets i:nth-child(4) {
+  right: 0;
+  bottom: 0;
+  border-right-color: var(--yellow);
+  border-bottom-color: var(--yellow);
+}
+
+.am-squad {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  animation: spin 9s linear infinite;
+}
+.am-squad b {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 6px var(--cyan);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.am-label {
+  position: absolute;
+  top: 18px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.8);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.am-label small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-dim);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-marker:hover .am-label,
+.agent-marker.selected .am-label,
+.agent-marker.close .am-label {
+  opacity: 1;
+}
+.agent-marker.selected .am-label {
+  color: var(--yellow);
+}
+
+/* Objective pins (squad-order style). */
+.objective-pin {
+  position: absolute;
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  background: rgba(10, 18, 24, 0.75);
+  pointer-events: auto;
+  cursor: pointer;
+  will-change: transform;
+}
+.objective-pin.st-todo {
+  color: var(--text-dim);
+}
+.objective-pin.st-in_progress {
+  color: var(--cyan);
+}
+.objective-pin.st-blocked {
+  color: var(--orange);
+  background: rgba(120, 40, 30, 0.75);
+}
+.objective-pin.st-in_review {
+  color: var(--yellow);
+}
+.objective-pin.st-done {
+  color: var(--green);
+  opacity: 0.7;
+}
+
+/* HQ badge + spawn slots, as on the deploy screen. */
+.hq-badge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.hq-frame {
+  position: absolute;
+  left: -26px;
+  top: -26px;
+  width: 52px;
+  height: 52px;
+  border: 1.5px solid rgba(115, 236, 249, 0.6);
+  background: rgba(28, 86, 102, 0.28);
+  display: grid;
+  place-items: center;
+}
+.hq-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--cyan);
+  color: #0c2a33;
+  font-weight: 700;
+  font-size: 15px;
+  display: grid;
+  place-items: center;
+  letter-spacing: 0.02em;
+}
+.hq-slots {
+  position: absolute;
+  top: -19px;
+  right: 34px;
+  display: flex;
+  gap: 4px;
+  pointer-events: auto;
+}
+.hq-slot {
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid rgba(216, 222, 226, 0.5);
+  background: rgba(8, 12, 16, 0.75);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+}
+.hq-slot:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.you-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+.you-x {
+  position: absolute;
+  left: -7px;
+  top: -11px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  text-shadow: 0 0 4px #000;
+}
+.you-label {
+  position: absolute;
+  left: -16px;
+  top: -34px;
+  padding: 0 6px;
+  font-size: 14px;
+  color: #dfe8b0;
+  background: rgba(90, 110, 40, 0.45);
+  border-radius: 2px;
+}
+
+.map-tooltip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  padding: 6px 10px;
+  background: rgba(1, 5, 6, 0.9);
+  border: 1px solid var(--border);
+  max-width: 420px;
+  z-index: 5;
+}
+.tt-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+.tt-meta {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.tt-ping {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--yellow);
+}
+
+/* ── Screen frame ─────────────────────────────────────────────────────────── */
+.frame {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 46%, transparent 62%, rgba(3, 8, 12, 0.32) 100%);
+}
+.dots {
+  position: absolute;
+  background-image: radial-gradient(rgba(216, 222, 226, 0.22) 1px, transparent 1.4px);
+  background-size: 9px 9px;
+  opacity: 0.6;
+}
+.ruler {
+  position: absolute;
+  left: 2.45rem;
+  top: 5.6rem;
+  bottom: 6.6rem;
+  width: 10px;
+  border-left: 1px solid var(--line);
+  background-image: linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 6px 1.42rem;
+  background-repeat: repeat-y;
+}
+.corner {
+  position: absolute;
+  top: 2.7rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--text-dim);
+  font-weight: 600;
+  pointer-events: auto;
+  border: 1px solid transparent;
+}
+.corner:hover {
+  color: var(--text);
+  border-color: var(--line);
+  background: rgba(216, 222, 226, 0.06);
+}
+
+/* ── Top-left header ──────────────────────────────────────────────────────── */
+.hud-header {
+  position: absolute;
+  left: 4.7rem;
+  top: 6rem;
+  display: flex;
+  gap: 1.1rem;
+  align-items: flex-start;
+}
+.emblem {
+  width: 4.15rem;
+  height: 4.15rem;
+  border: 1px solid rgba(216, 222, 226, 0.35);
+  background: rgba(10, 16, 20, 0.35);
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  flex: none;
+}
+.hud-title {
+  font-size: 1.85rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  line-height: 1.05;
+  color: var(--text);
+}
+.hud-sub {
+  font-size: 1.4rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.hud-hints {
+  position: absolute;
+  left: 4.7rem;
+  top: 11.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.38rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  pointer-events: auto;
+}
+.hint.active {
+  color: var(--yellow);
+}
+.key {
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.2rem;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0a1218;
+  background: var(--text-dim);
+  border-radius: 2px;
+}
+.hint svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  color: var(--text-dim);
+}
+
+/* ── Score bar ────────────────────────────────────────────────────────────── */
+.scorebar {
+  position: absolute;
+  top: 3rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+.objective-row {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  pointer-events: auto;
+}
+.obj-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  font-weight: 600;
+  position: relative;
+  cursor: pointer;
+}
+.obj-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0.2rem;
+}
+.obj-icon span {
+  position: relative;
+}
+.obj-icon.circle {
+  color: var(--cyan);
+}
+.obj-icon.circle::before {
+  border-radius: 50%;
+  border: 2px solid var(--cyan-mid);
+  background: rgba(28, 86, 102, 0.35);
+}
+.obj-icon.square {
+  color: var(--text-dim);
+}
+.obj-icon.square::before {
+  inset: 0.35rem;
+  border: 1.5px solid rgba(154, 164, 170, 0.7);
+}
+.obj-icon.diamond {
+  color: #ffd2c4;
+}
+.obj-icon.diamond::before {
+  inset: 0.4rem;
+  transform: rotate(45deg);
+  border: 2px solid var(--orange-mid);
+  background: rgba(140, 50, 38, 0.6);
+}
+.obj-icon.sel::after {
+  content: "";
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  bottom: -0.35rem;
+  height: 2px;
+  background: var(--yellow);
+}
+.mission-line {
+  font-size: 1.05rem;
+  letter-spacing: 0.09em;
+  color: var(--text);
+  text-transform: uppercase;
+  max-width: 44rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* ── Faction (top right) ──────────────────────────────────────────────────── */
+.faction {
+  position: absolute;
+  right: 4.7rem;
+  top: 6rem;
+  display: flex;
+  gap: 1.1rem;
+  align-items: flex-start;
+  text-align: right;
+}
+/* Under the faction block: MANAGE AGENTS, the SUPPLY toggle, then the COMMS ticker. */
+.side-stack {
+  position: absolute;
+  right: 4.7rem;
+  top: 11rem;
+  width: 23rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.7rem;
+  pointer-events: none;
+}
+.manage-btn {
+  height: 2.5rem;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(216, 222, 226, 0.45);
+  background: rgba(10, 16, 20, 0.35);
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  pointer-events: auto;
+}
+.manage-btn:hover {
+  border-color: var(--text);
+  background: rgba(216, 222, 226, 0.1);
+}
+.demo-tag {
+  margin-top: 0.25rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  color: var(--yellow);
+}
+
+/* SUPPLY: BUDGET | USAGE */
+.supply {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  pointer-events: auto;
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-shadow: 0 1px 3px #000;
+}
+.supply-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.seg {
+  display: inline-flex;
+  border: 1px solid rgba(216, 222, 226, 0.45);
+  background: rgba(10, 16, 20, 0.35);
+}
+.seg button {
+  height: 1.9rem;
+  padding: 0 0.65rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.seg button:hover:not(.on) {
+  color: var(--text);
+  background: rgba(216, 222, 226, 0.1);
+}
+.seg button.on {
+  background: #dfe5e8;
+  color: #0f181d;
+  text-shadow: none;
+  cursor: default;
+}
+.supply-line {
+  display: flex;
+  gap: 0.9rem;
+  color: var(--text);
+}
+.supply-line .dim {
+  color: var(--text-dim);
+}
+.supply-line .warn-text {
+  color: var(--yellow);
+}
+.plan-win {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.plan-win i {
+  position: relative;
+  width: 3.4rem;
+  height: 0.32rem;
+  background: rgba(128, 190, 117, 0.15);
+}
+.plan-win i b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(128, 190, 117, 0.6);
+}
+.plan-win.warn i b {
+  background: var(--yellow);
+  box-shadow: 0 0 6px rgba(230, 232, 115, 0.6);
+}
+.plan-win.hot {
+  color: var(--orange);
+}
+.plan-win.hot i b {
+  background: var(--orange);
+  box-shadow: 0 0 6px rgba(253, 134, 100, 0.7);
+}
+
+/* COMMS ticker (kill-feed style). */
+.comms {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  pointer-events: none;
+}
+.comms-line {
+  max-width: 100%;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.98rem;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  background: rgba(4, 10, 14, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: comms-in 0.25s ease-out;
+}
+.comms-line.k-error,
+.comms-line.k-permission,
+.comms-line.k-supply {
+  color: #ffc8b7;
+}
+.comms-line.k-mission {
+  color: var(--yellow);
+}
+.comms-line.k-sitrep,
+.comms-line.k-radio {
+  color: #bdf4fb;
+}
+.comms-line b {
+  color: var(--cyan);
+  font-weight: 600;
+}
+@keyframes comms-in {
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+}
+
+/* ── Roster (left) ────────────────────────────────────────────────────────── */
+.roster {
+  position: absolute;
+  left: 4.8rem;
+  top: 40.5rem;
+  /* Level with the bottom of the DEPLOY button. */
+  bottom: 4.2rem;
+  width: 21rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  pointer-events: auto;
+}
+.roster-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--green);
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid rgba(128, 190, 117, 0.55);
+  padding-bottom: 0.15rem;
+  margin-bottom: 0.4rem;
+  align-self: flex-start;
+  padding-right: 0.4rem;
+}
+.roster-title.dim {
+  color: var(--text-dim);
+  border-bottom-color: var(--line);
+  margin-top: 0.8rem;
+  font-size: 1.1rem;
+}
+.roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 0;
+}
+.roster-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1.4rem 1px 1fr;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.3rem 0 0.55rem;
+  position: relative;
+  color: var(--green);
+  text-align: left;
+}
+.roster-row .divider {
+  height: 1.5rem;
+  background: rgba(128, 190, 117, 0.5);
+}
+.roster-row .badge {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: var(--green);
+  color: #0e1a0f;
+  font-weight: 700;
+  font-size: 0.85rem;
+  display: grid;
+  place-items: center;
+}
+.roster-row .name {
+  font-size: 1.32rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roster-row .name small {
+  font-size: 0.95rem;
+  color: rgba(128, 190, 117, 0.75);
+  margin-left: 0.4rem;
+}
+.roster-row .bar {
+  position: absolute;
+  left: 0;
+  bottom: 0.1rem;
+  height: 0.32rem;
+  width: 11.5rem;
+  background: rgba(128, 190, 117, 0.12);
+}
+.roster-row .bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(128, 190, 117, 0.75);
+}
+.roster-row.needs .bar i {
+  background: var(--orange);
+  box-shadow: 0 0 8px rgba(253, 134, 100, 0.75);
+}
+.roster-row.selected {
+  color: var(--yellow);
+}
+.roster-row.selected .badge {
+  background: var(--yellow);
+}
+.roster-row.selected .divider {
+  background: rgba(230, 232, 115, 0.6);
+}
+.roster-row.selected .name {
+  font-size: 1.55rem;
+  font-weight: 600;
+}
+.roster-row.selected .bar {
+  width: 16rem;
+}
+.roster-row.selected .bar i {
+  background: var(--yellow);
+  box-shadow: 0 0 10px rgba(230, 232, 115, 0.8);
+}
+.roster-row.ext {
+  color: var(--text-dim);
+}
+/* A team lead's teammates, indented under it. */
+.roster-row.mate {
+  padding-left: 1.9rem;
+  padding-top: 0.15rem;
+}
+.roster-row.mate .badge {
+  width: auto;
+  min-width: 1.35rem;
+  padding: 0 0.25rem;
+  border-radius: 0.7rem;
+  font-size: 0.72rem;
+}
+.roster-row.mate .name {
+  font-size: 1.12rem;
+}
+.roster-row.mate .bar {
+  left: 1.9rem;
+  width: 9.6rem;
+}
+.roster-row.ext .badge {
+  background: var(--text-dim);
+}
+.roster-row.ext .divider {
+  background: var(--line);
+}
+.roster-row:hover .name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.roster-empty {
+  font-size: 1.1rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+  max-width: 19rem;
+}
+.front-row {
+  font-size: 1.02rem;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  max-width: 18rem;
+}
+
+/* Next to the zoom buttons in the top-left corner. */
+.zoom-box {
+  position: absolute;
+  left: 7.3rem;
+  top: 2.93rem;
+  padding: 0 0.3rem;
+  height: 1.45rem;
+  border: 1px solid rgba(216, 222, 226, 0.55);
+  font-size: 1.15rem;
+  line-height: 1.35rem;
+  color: var(--text);
+}
+
+/* ── Bottom: role picker + deploy ─────────────────────────────────────────── */
+.deploy-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 7.2rem;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  pointer-events: auto;
+}
+.role-cell {
+  width: 4.15rem;
+  height: 4.15rem;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  position: relative;
+}
+.role-cell::after {
+  content: "";
+  position: absolute;
+  left: 0.3rem;
+  right: 0.3rem;
+  bottom: 0;
+  height: 2px;
+  background: rgba(216, 222, 226, 0.25);
+}
+.role-cell.active {
+  background: #dfe5e8;
+  color: #0e171c;
+}
+.role-cell:hover:not(.active) {
+  background: rgba(216, 222, 226, 0.08);
+}
+.role-cell svg {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+.deploy-bar .key {
+  margin: 0 0.5rem;
+  background: rgba(154, 164, 170, 0.45);
+  color: var(--text);
+}
+.deploy-bar .key:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* Agent cells: role glyph with the agent's letter in the corner. */
+.agent-cell .cell-letter {
+  position: absolute;
+  right: 0.3rem;
+  bottom: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.agent-cell.mate {
+  width: 3.3rem;
+  color: var(--green);
+}
+.agent-cell.mate.active {
+  background: var(--green);
+  color: #0e1a0f;
+}
+.agent-cell.needs:not(.active) {
+  color: var(--orange);
+}
+.agent-cell.needs::after {
+  background: var(--orange);
+}
+
+/* Bottom left: PERMISSIONS [AUTO | PLAN | MANUAL], under the squad list. */
+.perm-bar {
+  position: absolute;
+  left: 4.8rem;
+  bottom: 1.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  text-shadow: 0 1px 3px #000;
+  pointer-events: auto;
+}
+.role-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 5.4rem;
+  transform: translateX(-50%);
+  font-size: 1.05rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* Intel panel above DEPLOY. The column reaches the top so a resized panel can grow;
+   it ignores the pointer, so the empty part never blocks the HUD behind it. */
+.right-col {
+  position: absolute;
+  right: 4.4rem;
+  top: 2.6rem;
+  bottom: 4.2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 0.9rem;
+  pointer-events: none;
+}
+.right-col > * {
+  pointer-events: auto;
+}
+.deploy-btn {
+  position: relative;
+  width: 22.5rem;
+  height: 7.6rem;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: rgba(29, 38, 43, 0.88);
+  border: 1px solid var(--border);
+  font-size: 2.2rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #c4ccd1;
+}
+.deploy-btn:hover {
+  color: #fff;
+  background: rgba(40, 52, 58, 0.95);
+}
+.deploy-btn .key {
+  margin-left: 0.8rem;
+  font-size: 1rem;
+  padding: 0 0.45rem;
+  height: 1.7rem;
+  background: #dfe5e8;
+  color: #1a252b;
+}
+.tick-frame::before,
+.tick-frame::after {
+  content: "";
+  position: absolute;
+  width: 0.9rem;
+  height: 0.9rem;
+  pointer-events: none;
+}
+.tick-frame::before {
+  left: -0.45rem;
+  top: -0.45rem;
+  border-left: 1px solid var(--line-strong);
+  border-top: 1px solid var(--line-strong);
+}
+.tick-frame::after {
+  right: -0.45rem;
+  top: -0.45rem;
+  border-right: 1px solid var(--line-strong);
+  border-top: 1px solid var(--line-strong);
+}
+
+/* ── Intel panel ──────────────────────────────────────────────────────────── */
+/* The cam box stays transparent: the map renders the objective camera
+   into that exact screen rect, so every other section carries its own fill. */
+.intel {
+  position: relative;
+  /* Default: everything between the SUPPLY widget and DEPLOY. Drag the edges to resize. */
+  width: 22.5rem;
+  height: min(calc(100vh - 30.9rem), 60rem);
+  max-width: calc(100vw - 32rem);
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.intel-grip {
+  position: absolute;
+  z-index: 3;
+}
+.intel-grip.w {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+.intel-grip.h {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+.intel-grip.wh {
+  left: 0;
+  top: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+.intel-grip.wh::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 7px;
+  height: 7px;
+  border-left: 2px solid var(--line-strong);
+  border-top: 2px solid var(--line-strong);
+}
+.intel-grip:hover {
+  background: rgba(112, 235, 252, 0.22);
+}
+/* While dragging, keep the resize cursor wherever the pointer goes. */
+body[data-resize] {
+  user-select: none;
+}
+body[data-resize="w"] * {
+  cursor: ew-resize !important;
+}
+body[data-resize="h"] * {
+  cursor: ns-resize !important;
+}
+body[data-resize="wh"] * {
+  cursor: nwse-resize !important;
+}
+.intel > :not(.cam):not(.intel-head):not(.intel-grip) {
+  background: rgba(19, 27, 33, 0.94);
+}
+.intel-head {
+  height: 2.7rem;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: var(--panel-black);
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+.intel-close {
+  position: absolute;
+  right: 0.6rem;
+  top: 0.45rem;
+  width: 1.8rem;
+  height: 1.8rem;
+  color: var(--text-dim);
+  font-size: 1.2rem;
+}
+.intel-close:hover,
+.intel-full-btn:hover {
+  color: var(--text);
+}
+.intel-full-btn {
+  position: absolute;
+  left: 0.7rem;
+  top: 0.45rem;
+  z-index: 4;
+  width: 1.8rem;
+  height: 1.8rem;
+  color: var(--text-dim);
+  font-size: 1.25rem;
+}
+
+/* Full screen: the panel fills the window. Camera and stats on the left,
+   tabs and orders on the right. */
+.intel.full {
+  position: fixed;
+  inset: 1.6rem 1.8rem;
+  z-index: 25;
+  width: auto;
+  height: auto;
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(24rem, 34%) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "head head"
+    "cam tabs"
+    "cam body"
+    "meta orders";
+}
+.intel.full > .intel-head {
+  grid-area: head;
+  height: 3.2rem;
+  font-size: 1.5rem;
+}
+.intel.full > .cam {
+  grid-area: cam;
+  height: auto;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.intel.full > .intel-meta {
+  grid-area: meta;
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 0.8rem 1.1rem;
+  gap: 0.45rem;
+}
+.intel.full > .tabs {
+  grid-area: tabs;
+}
+.intel.full > .tab-body {
+  grid-area: body;
+  min-height: 0;
+}
+.intel.full > .orders-box {
+  grid-area: orders;
+  padding: 0.7rem 1rem;
+}
+.intel.full .intel-name {
+  font-size: 1.9rem;
+}
+.intel.full .intel-detail {
+  font-size: 1.2rem;
+  white-space: normal;
+}
+.intel.full .meter {
+  font-size: 1rem;
+}
+.intel.full .cam-status {
+  right: 1.4rem;
+  bottom: 1.2rem;
+  font-size: 1.2rem;
+}
+.intel.full .cam-status b {
+  font-size: 1.5rem;
+}
+.intel.full .cam-mascot {
+  left: 1.4rem;
+  bottom: 1.1rem;
+}
+.intel.full .tab {
+  height: 2.7rem;
+  font-size: 1.12rem;
+}
+.intel.full .feed {
+  padding: 0.9rem 1.4rem 1.2rem;
+  gap: 0.55rem;
+}
+.intel.full .feed-item,
+.intel.full .feed-live {
+  font-size: 1.18rem;
+  line-height: 1.45;
+}
+.intel.full .feed-item .t {
+  font-size: 0.92rem;
+}
+.intel.full .feed-item.k-tool_use {
+  font-size: 0.98rem;
+}
+.intel.full .feed-item.k-tool_result {
+  font-size: 0.9rem;
+  max-height: 16em;
+}
+.intel.full .feed-item.k-prompt,
+.intel.full .feed-item.k-order {
+  max-height: 30em;
+}
+.intel.full .obj-list,
+.intel.full .files-list {
+  padding: 0.9rem 1.4rem;
+  font-size: 1.1rem;
+}
+.intel.full .term-intro {
+  padding: 1.2rem 1.4rem;
+  font-size: 1.15rem;
+}
+.intel.full .orders-input textarea {
+  font-size: 1.15rem;
+}
+.intel.full .orders-box .btn {
+  height: 2.2rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+}
+/* The camera area is see-through (the map renders the objective cam there), so in
+   full screen everything else that sits over the map is hidden: markers drawn for
+   the main camera and the HUD. Approvals, banners, toasts and dialogs stay. */
+/* (Markers set their own visibility every frame, so their layers are removed outright.) */
+.war-room.intel-full .map-overlay,
+.war-room.intel-full .map-lines,
+.war-room.intel-full .map-tooltip {
+  display: none;
+}
+.war-room.intel-full .deploy-btn,
+.war-room.intel-full > :not(.map-view):not(.right-col):not(.approvals):not(.banner):not(.toasts):not(.modal-scrim):not(.locked) {
+  visibility: hidden;
+}
+.cam {
+  position: relative;
+  height: 11.5rem;
+  flex: none;
+  overflow: hidden;
+}
+.cam-brackets {
+  position: absolute;
+  inset: 0.7rem;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--line-strong), var(--line-strong)) left top / 1.6rem 1px no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) left top / 1px 1.6rem no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) right top / 1.6rem 1px no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) right top / 1px 1.6rem no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) left bottom / 1.6rem 1px no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) left bottom / 1px 1.6rem no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) right bottom / 1.6rem 1px no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) right bottom / 1px 1.6rem no-repeat;
+}
+.cam-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1.4rem;
+  height: 1.4rem;
+  transform: translate(-50%, -50%);
+  background:
+    linear-gradient(var(--line-strong), var(--line-strong)) center / 1px 100% no-repeat,
+    linear-gradient(var(--line-strong), var(--line-strong)) center / 100% 1px no-repeat;
+  opacity: 0.7;
+}
+.cam-mascot {
+  position: absolute;
+  left: 0.9rem;
+  bottom: 0.6rem;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.6));
+}
+.cam-glitch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.cam-status {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.7rem;
+  text-align: right;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  text-shadow: 0 1px 3px #000;
+}
+.cam-status b {
+  display: block;
+  font-size: 1.15rem;
+  color: var(--cyan);
+}
+.cam-status.needs b {
+  color: var(--orange);
+}
+.intel-meta {
+  flex: none;
+  padding: 0.55rem 0.9rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 0.25rem;
+}
+.intel-name {
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+/* Keep the callsign on one line; the role title gives way. */
+.intel-name > span {
+  flex: none;
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intel-name small {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 1rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.intel-detail {
+  font-size: 1.05rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meter {
+  display: grid;
+  grid-template-columns: 4.6rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.meter .track {
+  height: 0.32rem;
+  background: rgba(128, 190, 117, 0.12);
+  position: relative;
+}
+.meter .track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--green);
+}
+.meter .track.ctx i {
+  background: var(--cyan-mid);
+}
+.meter span:last-child {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+.tabs {
+  flex: none;
+  display: flex;
+  border-bottom: 1px solid var(--line);
+}
+.tab {
+  flex: 1;
+  height: 2.2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+}
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--cyan);
+}
+.tab:hover:not(.active) {
+  color: var(--text);
+}
+.tab-body {
+  flex: 1 1 auto;
+  min-height: 3rem;
+  position: relative;
+}
+.feed {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  user-select: text;
+}
+.feed-item {
+  font-size: 0.98rem;
+  line-height: 1.32;
+  color: var(--text);
+  word-break: break-word;
+}
+.feed-item .t {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+  margin-right: 0.35rem;
+}
+.feed-item.k-tool_use {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: #bfe9f0;
+}
+.feed-item.k-tool_use::before {
+  content: "▸ ";
+  color: var(--cyan);
+}
+.feed-item.k-tool_result {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  max-height: 4.6em;
+  overflow: hidden;
+  padding-left: 0.9rem;
+  white-space: pre-wrap;
+}
+.feed-item.k-tool_result.err {
+  color: #ffb6a3;
+}
+.feed-item.k-prompt,
+.feed-item.k-order {
+  color: var(--yellow);
+  border-left: 2px solid rgba(230, 232, 115, 0.6);
+  padding-left: 0.5rem;
+  white-space: pre-wrap;
+  max-height: 7.5em;
+  overflow: hidden;
+}
+.feed-item.k-result {
+  color: var(--green);
+}
+.feed-item.k-result.err,
+.feed-item.k-error {
+  color: var(--orange);
+}
+.feed-item.k-system {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.feed-live {
+  font-size: 0.98rem;
+  color: var(--text);
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+.feed-live::after {
+  content: "▍";
+  color: var(--cyan);
+  animation: m-blink-cursor 1s steps(1) infinite;
+}
+@keyframes m-blink-cursor {
+  50% {
+    opacity: 0;
+  }
+}
+.empty {
+  color: var(--text-dim);
+  font-size: 1.02rem;
+  padding: 0.8rem;
+  line-height: 1.4;
+}
+
+.obj-list {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.obj-section {
+  margin: 0.5rem 0 0.1rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  color: var(--green);
+}
+.obj-card {
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.6rem;
+  display: grid;
+  gap: 0.2rem;
+  background: rgba(10, 16, 20, 0.45);
+}
+.obj-card .row1 {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.obj-card .row2 {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+.status-chip {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0 0.35rem;
+  height: 1.2rem;
+  line-height: 1.2rem;
+  white-space: nowrap;
+}
+.status-chip.st-todo {
+  color: var(--text-dim);
+  border: 1px solid var(--line-strong);
+}
+.status-chip.st-in_progress {
+  color: #052229;
+  background: var(--cyan);
+}
+.status-chip.st-blocked {
+  color: #2a0b05;
+  background: var(--orange);
+}
+.status-chip.st-in_review {
+  color: #262705;
+  background: var(--yellow);
+}
+.status-chip.st-done {
+  color: #0b1d08;
+  background: var(--green);
+}
+.status-chip.st-cancelled {
+  color: var(--text-faint);
+  border: 1px dashed var(--line);
+}
+.files-list {
+  position: absolute;
+  inset: 0;
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  text-align: left;
+  padding: 0.15rem 0;
+}
+.file-row span:last-child {
+  color: var(--text-faint);
+  flex: none;
+}
+.file-row:hover {
+  color: var(--cyan);
+}
+
+.term-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term {
+  flex: 1;
+  min-height: 0;
+  padding: 0.3rem;
+  background: #05080a;
+}
+.term-actions {
+  flex: none;
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border-top: 1px solid var(--line);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.term-intro {
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.6rem;
+  font-size: 1.02rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.term-intro code,
+.code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  background: #05080a;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  display: block;
+  word-break: break-all;
+  user-select: all;
+}
+
+.orders-box {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 0.5rem 0.6rem;
+  display: grid;
+  gap: 0.45rem;
+}
+.orders-input {
+  display: flex;
+  border: 1px solid var(--line-strong);
+  background: rgba(4, 8, 11, 0.7);
+}
+.orders-box .actions {
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+/* Sized to their labels, so the long ones (TERMINAL, DISMISS) get the room they need. */
+.orders-box .btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 0.2rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orders-input textarea {
+  flex: 1;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 0.4rem 0.55rem;
+  font-size: 1.05rem;
+  line-height: 1.3;
+  outline: none;
+  user-select: text;
+}
+.orders-input button {
+  flex: none;
+  padding: 0 0.7rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  border-left: 1px solid var(--line);
+}
+.orders-input button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.btn {
+  height: 1.9rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line-strong);
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  background: rgba(10, 16, 20, 0.55);
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--text);
+  background: rgba(216, 222, 226, 0.1);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.btn.primary {
+  background: #dfe5e8;
+  color: #0f181d;
+  border-color: #dfe5e8;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #fff;
+}
+.btn.danger {
+  color: var(--orange);
+  border-color: rgba(253, 134, 100, 0.6);
+}
+
+/* ── Approvals (center) ───────────────────────────────────────────────────── */
+.approvals {
+  position: absolute;
+  z-index: 28;
+  left: 50%;
+  bottom: 13.2rem;
+  transform: translateX(-50%);
+  width: 34rem;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
+  pointer-events: auto;
+}
+.approval {
+  background: rgba(19, 27, 33, 0.95);
+  border: 1px solid rgba(253, 134, 100, 0.55);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  animation: comms-in 0.2s ease-out;
+}
+.approval-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0.7rem;
+  background: rgba(120, 40, 30, 0.55);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #ffd2c4;
+}
+.approval-body {
+  padding: 0.5rem 0.7rem 0.6rem;
+  display: grid;
+  gap: 0.4rem;
+}
+.approval-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.approval-detail {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  max-height: 7.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #05080a;
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.5rem;
+  user-select: text;
+}
+.approval-note {
+  border: 1px solid var(--line);
+  background: rgba(4, 8, 11, 0.7);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.98rem;
+  outline: none;
+}
+.approval .actions {
+  justify-content: flex-end;
+}
+.approval-more {
+  text-align: center;
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  color: var(--orange);
+}
+
+/* ── Banner, toasts, dialogs ──────────────────────────────────────────────── */
+.banner {
+  position: absolute;
+  z-index: 28;
+  top: 12.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.4rem 1rem;
+  background: rgba(120, 40, 30, 0.8);
+  border: 1px solid var(--orange);
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  color: #ffe1d7;
+  pointer-events: auto;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+.banner code {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 0.1rem 0.4rem;
+}
+.toasts {
+  position: absolute;
+  top: 15.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: center;
+  pointer-events: none;
+  z-index: 30;
+}
+.toast {
+  padding: 0.35rem 0.9rem;
+  font-size: 1.02rem;
+  background: rgba(1, 5, 6, 0.92);
+  border: 1px solid var(--border);
+  max-width: 40rem;
+  animation: comms-in 0.2s ease-out;
+}
+.toast.error {
+  border-color: var(--orange);
+  color: #ffd2c4;
+}
+.toast.warn {
+  border-color: var(--yellow);
+}
+
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 9, 0.62);
+  display: grid;
+  place-items: center;
+  z-index: 40;
+  pointer-events: auto;
+}
+.modal {
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 4rem);
+  display: flex;
+  flex-direction: column;
+  background: rgba(19, 27, 33, 0.98);
+  border: 1px solid var(--border);
+  position: relative;
+}
+.modal.wide {
+  width: min(70rem, calc(100vw - 2rem));
+}
+.modal-head {
+  height: 3rem;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  background: var(--panel-black);
+  font-size: 1.4rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+.modal-body {
+  padding: 1rem 1.1rem;
+  display: grid;
+  gap: 0.85rem;
+  overflow: auto;
+}
+.modal-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.7rem 1.1rem;
+  border-top: 1px solid var(--line);
+}
+.field {
+  display: grid;
+  gap: 0.3rem;
+}
+.field > span {
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+.field input,
+.field textarea,
+.field select {
+  border: 1px solid var(--line-strong);
+  background: rgba(4, 8, 11, 0.75);
+  padding: 0.45rem 0.6rem;
+  font-size: 1.12rem;
+  outline: none;
+  user-select: text;
+}
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  border-color: var(--cyan);
+}
+.field textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  line-height: 1.35;
+}
+.field small {
+  font-size: 0.92rem;
+  color: var(--text-faint);
+  line-height: 1.35;
+}
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+.grid3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.8rem;
+}
+.role-pick {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.4rem;
+}
+.role-opt {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  text-align: left;
+  font-size: 1.05rem;
+  font-weight: 600;
+  background: rgba(4, 8, 11, 0.45);
+}
+.role-opt.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(28, 86, 102, 0.3);
+}
+.role-desc {
+  font-size: 1rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+/* Deploy dialog: what the picked agent type does. */
+.role-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--cyan);
+  background: rgba(4, 8, 11, 0.45);
+}
+.role-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.role-card-summary {
+  font-size: 1.18rem;
+  line-height: 1.35;
+  color: var(--text);
+}
+.role-card-facts {
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+}
+.team-toggle {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  background: rgba(4, 8, 11, 0.45);
+  font-size: 0.98rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.team-toggle b {
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+.team-toggle.on {
+  border-color: rgba(128, 190, 117, 0.7);
+  background: rgba(40, 80, 40, 0.28);
+}
+.team-toggle.on b {
+  color: var(--green);
+}
+.team-toggle input {
+  margin-top: 0.2rem;
+  accent-color: var(--green);
+}
+.team-toggle.compact {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.92rem;
+}
+.form-foot {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.form-foot .team-toggle {
+  flex: 1;
+}
+.model-tag {
+  color: var(--cyan-mid);
+}
+.model-tag.pending {
+  color: var(--yellow);
+}
+.obj-model {
+  display: flex;
+  gap: 0.4rem;
+}
+.obj-model > * {
+  flex: 1;
+  min-width: 0;
+}
+.locked {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 9, 0.85);
+  z-index: 50;
+  text-align: center;
+  padding: 2rem;
+}
+.locked h1 {
+  font-size: 2.4rem;
+  letter-spacing: 0.1em;
+  margin: 0 0 0.5rem;
+}
+.locked p {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  max-width: 38rem;
+  line-height: 1.5;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1.02rem;
+}
+.table th {
+  text-align: left;
+  font-size: 0.85rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+  font-weight: 700;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+}
+.table td {
+  padding: 0.4rem;
+  border-bottom: 1px solid rgba(216, 222, 226, 0.08);
+  vertical-align: middle;
+}
+.table input,
+.table select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(4, 8, 11, 0.7);
+  padding: 0.2rem 0.35rem;
+  font-size: 0.98rem;
+}
+.board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.board-col {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+}
+.board-col h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+.thread {
+  display: grid;
+  gap: 0.3rem;
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.95rem;
+}
+.thread div {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 0.5rem;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.thread b {
+  color: var(--cyan);
+}
+
+@media (max-width: 760px) {
+  .comms,
+  .hud-hints {
+    display: none;
+  }
+}

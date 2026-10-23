@@ -1,0 +1,91 @@
+@import "@fontsource/rajdhani/latin-500.css";
+@import "@fontsource/rajdhani/latin-600.css";
+@import "@fontsource/rajdhani/latin-700.css";
+
+/* Colors sampled from the BF6 deploy-screen reference shots. */
+:root {
+  --cyan: #70ebfc;
+  --cyan-line: #73ecf9;
+  --cyan-mid: #60aabd;
+  --cyan-fill: rgba(28, 86, 102, 0.55);
+  --orange: #fd8664;
+  --orange-line: #f5896b;
+  --orange-mid: #d17c6d;
+  --orange-fill: rgba(120, 40, 30, 0.6);
+  --green: #80be75;
+  --green-mid: #5ca759;
+  --yellow: #e6e873;
+  --text: #d8dee2;
+  --text-dim: #9aa4aa;
+  --text-faint: #69767e;
+  --panel: rgba(29, 38, 43, 0.92);
+  --panel-solid: #1d262b;
+  --panel-2: #131b21;
+  --panel-black: #010506;
+  --border: #384248;
+  --line: rgba(216, 222, 226, 0.22);
+  --line-strong: rgba(216, 222, 226, 0.45);
+  --font: "Rajdhani", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #0a1218;
+  color: var(--text);
+  font-family: var(--font);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(112, 235, 252, 0.3);
+}
+
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(216, 222, 226, 0.25) transparent;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
