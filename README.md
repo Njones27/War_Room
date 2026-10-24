@@ -125,6 +125,13 @@ Below the tabs are the orders box (Enter sends, Shift+Enter adds a line) and **W
 | Dashed orange line | Where an agent is heading |
 | Dotted cyan line | Chain of command |
 | Dotted green line | A team lead and its working teammates |
+| Black Hawk | Airlifts agents: out of HQ when they deploy, and across the city on long moves. Aboard, an agent's marker rides above the helicopter |
+| Airbase | Outside the playable area, south of HQ: runway, apron and control tower |
+| F-35 pair | Take off from the airbase and fly a patrol, attack passes on a building being worked on (25mm gun, guided bomb or missile), or a circuit over the fighting, then land with a long straight-in approach |
+| UAV | Loiters slowly, far above everything else |
+| AC-130 | Orbits far out and keeps the buildings agents are working on under fire. When a file is deleted, it swings over that building and brings it down |
+| Yellow dashes | Tracer rounds. Fast-firing guns leave short dashes (a dotted stream), slow heavy guns leave long streaks |
+| Rubble, fire and smoke | A building whose file was deleted (hover it to check). It clears on the next rescan |
 
 ### Keys and mouse
 
@@ -136,7 +143,7 @@ Below the tabs are the orders box (Enter sends, Shift+Enter adds a line) and **W
 | **F** | Full-screen intel panel |
 | **Esc** | Leave full screen, then deselect |
 | **O** | Objectives board |
-| **Z** | PING: click a building to create an objective there |
+| **Z** | PING: click a building to mark it (yellow rings ripple out and it lights up yellow) and create an objective there |
 | **R** | Reset the camera |
 | **+** / **−** or the mouse wheel | Zoom (also the buttons in the top-left corner) |
 | **← → ↑ ↓** or drag | Pan |
@@ -192,6 +199,30 @@ Try it in the demo first: it runs a scripted team for free.
 ### TAKE COMMAND
 
 The **TERMINAL** tab can open an agent's real Claude Code session, the interactive TUI, right in the browser. While you hold command, War Room leaves the agent alone; **RELEASE** hands it back. The tab also gives you a `claude --resume` command to continue the session in your own terminal.
+
+### Air wing and strikes
+
+The aircraft are low-poly 3D models drawn in code, in the friendly light blue of the game's map icons. They keep a minimum size on screen, so they stay readable when you zoom out.
+
+The AC-130 carries the gunship's three guns on its left side, so it only fires while a target is off its left wing. Each gun keeps its real-world rate of fire, and slower shells take longer to arrive:
+- the 25mm GAU-12 Equalizer Gatling, held to 1,800 rounds a minute on the gunship
+- the 40mm Bofors L/60, about 100 rounds a minute in 4-round clips
+- the 105mm M102 howitzer, a hand-loaded shell every 6 to 10 seconds
+
+The F-35s are strike fighters. On an attack pass a jet turns in toward the target, lines up, and fires one of three weapons:
+- its 25mm GAU-22/A gun (about 3,300 rounds a minute)
+- a laser-guided bomb, dropped from the run
+- a missile that flies in on a smoke trail
+
+Every attack lands on the roof. Fire at a building that's being worked on is for show: it flashes, burns and smokes, but nothing comes down.
+
+Nothing flies through anything:
+- Every aircraft keeps above the rooftops beneath it and along its path.
+- When two aircraft converge, the higher one climbs and the lower one drops until they're clear (never into the buildings).
+- The jets take turns with the runway.
+- Takeoffs and landings happen at the airbase over open ground, never over the city.
+
+When a file is deleted, the AC-130 fires on its building: tracers, a fireball, a shockwave, and a collapse into burning rubble. War Room notices deletions two ways. After each shell command an agent runs, it checks which of the map's files are gone from that agent's checkout or worktree. Every 5 seconds it also checks the main checkout, which catches deletions made outside War Room. More than 40 files vanishing at once looks like a branch switch, so that doesn't trigger a strike. The demo fakes a few deletions; it never deletes anything.
 
 ### Watch-only units
 

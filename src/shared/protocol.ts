@@ -246,6 +246,16 @@ export interface CommsCheck {
   rateLimit: RateLimitInfo | null;
 }
 
+/** Files deleted from the repo: their buildings are struck and come down on the map. */
+export interface StrikeView {
+  id: string;
+  /** The unit whose command deleted them (null when no agent was involved). */
+  agentId: string | null;
+  /** Repo-relative building paths. */
+  paths: string[];
+  at: number;
+}
+
 export interface FrontView {
   cwd: string;
   name: string;
@@ -288,6 +298,8 @@ export interface Snapshot {
   feed: FeedItem[];
   roles: RoleView[];
   city: CityModel;
+  /** Buildings destroyed since the city was last scanned. */
+  destroyed: string[];
   commsCheck: CommsCheck;
   fronts: FrontView[];
   settings: Settings;
@@ -307,6 +319,7 @@ export type ServerMsg =
   | { t: "text_delta"; agentId: string; runId: string; text: string }
   | { t: "comms"; entry: CommsEntry }
   | { t: "city"; city: CityModel }
+  | { t: "strike"; strike: StrikeView }
   | { t: "comms_check"; check: CommsCheck }
   | { t: "fronts"; fronts: FrontView[] }
   | { t: "settings"; settings: Settings }

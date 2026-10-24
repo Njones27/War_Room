@@ -7,6 +7,7 @@ import path from "node:path";
 import type { Activity, AgentStatus, AgentView, FeedItem, FrontView, TheaterView } from "../shared/protocol.js";
 import { toRepoPath, toolActivity } from "./activity.js";
 import type { Bus } from "./bus.js";
+import { SHELL_TOOLS, workspaceRootOf, type Demolition } from "./demolition.js";
 import { listClaudeSessions, type ClaudeSessionInfo } from "./claudeCli.js";
 import { contentText } from "./streamParser.js";
 import { isWithin, newId, truncate } from "./util.js";
@@ -44,6 +45,7 @@ export class Watch {
     private readonly theater: () => TheaterView,
     private readonly managedSessionIds: () => Set<string>,
     private readonly intervalMs = 6000,
+    private readonly demolition: Demolition | null = null,
   ) {}
 
   start(): void {
@@ -193,6 +195,7 @@ export class Watch {
     if (lastNl < 0) return false;
     unit.offset += Buffer.byteLength(text.slice(0, lastNl + 1));
     let changed = false;
+    let shell = false;
     const v = unit.view;
     for (const line of text.slice(0, lastNl).split("\n")) {
       let o: Record<string, unknown>;
@@ -206,6 +209,7 @@ export class Watch {
       if (o.type === "assistant" && Array.isArray(message.content)) {
         for (const b of message.content as Record<string, unknown>[]) {
           if (b.type === "tool_use") {
+            if (SHELL_TOOLS.has(String(b.name))) shell = true;
             const act = toolActivity(String(b.name), (b.input ?? {}) as Record<string, unknown>);
             const target = toRepoPath(act.rawPath, typeof o.cwd === "string" ? o.cwd : v.workspace.path, v.workspace.path, t.root);
             if (v.status === "running" && v.activity !== "needs_you") {
@@ -234,6 +238,8 @@ export class Watch {
         }
       }
     }
+    // Their shell commands may have deleted files: the diff since the last check is struck.
+    if (shell) void this.demolition?.check(v, workspaceRootOf(v.workspace.path, t.root));
     return changed;
   }
 

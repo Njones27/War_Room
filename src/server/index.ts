@@ -13,6 +13,7 @@ import { Bus } from "./bus.js";
 import { commsCheck } from "./claudeCli.js";
 import { PACKAGE_ROOT, parseArgs } from "./config.js";
 import { openDatabase } from "./db.js";
+import { Demolition } from "./demolition.js";
 import { PtyHost } from "./ptyHost.js";
 import { cliPermissionMode, HQ, permissionOverrideOf, supplyModeOf } from "./hq.js";
 import { createMcpHandler } from "./mcp.js";
@@ -105,14 +106,17 @@ async function main(): Promise<void> {
   for (const e of roles.errors) console.warn(`  ! ${e}`);
 
   let city = null as unknown as CityModel; // set by the first rescan below
+  const demolition = new Demolition({ store, bus, city: () => city, theater: () => theater });
   const rescan = async () => {
     const scan = await scanRepo(config.projectRoot);
     const g = await gitInfo(config.projectRoot);
     theater = store.ensureTheater(config.projectRoot, theater.name, g.isGit, g.branch);
     city = layoutCity(scan.tree, { name: theater.name, root: theater.root, fileCount: scan.fileCount, truncated: scan.truncated });
+    demolition.reset();
     bus.emit({ t: "city", city });
   };
   await rescan();
+  demolition.start();
 
   // The last plan-usage reading survives restarts (it only arrives with sortie traffic).
   let comms: CommsCheck = { ...(await commsCheck(config.claudeBin)), rateLimit: parseJson<RateLimitInfo | null>(store.getSetting("rateLimit"), null) };
@@ -127,7 +131,7 @@ async function main(): Promise<void> {
   const approvals = new Approvals(store, config.approvalTimeoutMs);
   let toolkit: Toolkit | null = null;
   const adapter = config.demo
-    ? createDemoAdapter({ store, toolkit: () => toolkit!, city: () => city })
+    ? createDemoAdapter({ store, toolkit: () => toolkit!, city: () => city, strike: (agent, paths) => demolition.strike(agent, paths) })
     : createClaudeLocalAdapter(config.claudeBin);
   // Demo runs get a throwaway token; real runs keep one so the link can be bookmarked.
   const security = new Security(config.port, config.demo ? undefined : loadOrCreateToken(path.join(config.homeDir, "token")));
@@ -142,6 +146,7 @@ async function main(): Promise<void> {
     mcpUrl: () => `http://127.0.0.1:${config.port}/mcp`,
     supplyMode,
     permissionMode,
+    demolition,
     onRateLimit: (info) => {
       // An event that doesn't carry a window keeps the last reading for it.
       const prev = comms.rateLimit;
@@ -154,7 +159,7 @@ async function main(): Promise<void> {
   const ptys = new PtyHost(bus, config.claudeBin);
   await ptys.init();
   const takeCommand = new TakeCommand(ptys);
-  const watch = config.demo ? null : new Watch(config.claudeBin, bus, () => theater, () => store.knownSessionIds());
+  const watch = config.demo ? null : new Watch(config.claudeBin, bus, () => theater, () => store.knownSessionIds(), undefined, demolition);
   const team = new TeamOps({
     store,
     bus,
@@ -168,11 +173,13 @@ async function main(): Promise<void> {
     authorName: (author) => scheduler.authorName(author),
     permissionMode,
     demo: config.demo ? { toolkit: () => toolkit!, city: () => city } : undefined,
+    demolition,
   });
   scheduler.attachLive(team);
 
   const hq = new HQ(store, bus, roles, scheduler, approvals, config, () => theater, {
     city: () => city,
+    destroyed: () => demolition.destroyed(),
     commsCheck: () => comms,
     fronts: () => watch?.frontList() ?? [],
     externalAgents: () => watch?.agents() ?? [],
@@ -255,6 +262,7 @@ async function main(): Promise<void> {
     team.stopAll();
     ptys.stopAll();
     watch?.stop();
+    demolition.stop();
     server.close();
     if (lockFile) fs.rmSync(lockFile, { force: true });
     if (config.demo) fs.rmSync(config.runDir, { recursive: true, force: true });

@@ -15,6 +15,7 @@ import type {
   ServerMsg,
   Settings,
   Snapshot,
+  StrikeView,
   TheaterView,
 } from "../../shared/protocol";
 
@@ -70,6 +71,10 @@ interface State {
   live: Record<string, string>;
   roles: RoleView[];
   city: CityModel | null;
+  /** Buildings whose files were deleted since the last scan. */
+  destroyed: string[];
+  /** Strikes received live (each one plays once on the map). */
+  strikes: StrikeView[];
   commsCheck: CommsCheck | null;
   fronts: FrontView[];
   settings: Settings | null;
@@ -125,6 +130,8 @@ function loadSnapshot(s: Snapshot): Partial<State> {
     feed: groupFeed(s.feed),
     roles: s.roles,
     city: s.city,
+    destroyed: s.destroyed ?? [],
+    strikes: [],
     commsCheck: s.commsCheck,
     fronts: s.fronts,
     settings: s.settings,
@@ -147,6 +154,8 @@ export const useStore = create<State>((set, get) => ({
   live: {},
   roles: [],
   city: null,
+  destroyed: [],
+  strikes: [],
   commsCheck: null,
   fronts: [],
   settings: null,
@@ -230,7 +239,10 @@ export const useStore = create<State>((set, get) => ({
         set((s) => ({ comms: [...s.comms, msg.entry].slice(-200) }));
         return;
       case "city":
-        set({ city: msg.city });
+        set({ city: msg.city, destroyed: [] });
+        return;
+      case "strike":
+        set((s) => ({ strikes: [...s.strikes, msg.strike].slice(-30), destroyed: [...new Set([...s.destroyed, ...msg.strike.paths])] }));
         return;
       case "comms_check":
         set({ commsCheck: msg.check });

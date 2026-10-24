@@ -35,6 +35,8 @@ export const MERGE_TOOLS = ["Bash(git merge*)", "Bash(git checkout*)", "Bash(git
 
 export interface Providers {
   city: () => CityModel;
+  /** Buildings destroyed since the last scan. */
+  destroyed?: () => string[];
   commsCheck: () => CommsCheck;
   fronts: () => FrontView[];
   externalAgents: () => AgentView[];
@@ -148,6 +150,7 @@ export class HQ {
       feed: this.store.recentFeed(t.id),
       roles: this.roles.views(),
       city: this.providers.city(),
+      destroyed: this.providers.destroyed?.() ?? [],
       commsCheck: this.providers.commsCheck(),
       fronts: this.providers.fronts(),
       settings: this.settings(),

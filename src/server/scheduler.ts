@@ -15,6 +15,7 @@ import type { AgentAdapter, RunExit, RunHandle } from "./adapters/types.js";
 import type { Approvals } from "./approvals.js";
 import type { Bus } from "./bus.js";
 import type { WarRoomConfig } from "./config.js";
+import { SHELL_TOOLS, type Demolition } from "./demolition.js";
 import { agentEnv } from "./env.js";
 import { buildInstructions, buildWakePrompt, formatLiveOrder } from "./prompts.js";
 import type { RoleDef, Roles } from "./roles.js";
@@ -36,6 +37,8 @@ export interface SchedulerDeps {
   /** The `--permission-mode` every sortie runs with (defaults to the agent's own). */
   permissionMode?: () => string;
   onRateLimit?: (info: RateLimitInfo) => void;
+  /** Strikes buildings whose files an agent's shell command deleted. */
+  demolition?: Demolition;
 }
 
 /**
@@ -72,6 +75,8 @@ interface ActiveRun {
   error: string | null;
   stopped: boolean;
   subagentCalls: Set<string>;
+  /** Shell commands in flight (subagents' too): deletions are checked when each one ends. */
+  shellCalls: Set<string>;
   lastContextWrite: number;
   runDir: string;
   /** Objectives coalesced into this wake that still need their own sortie. */
@@ -327,6 +332,7 @@ export class Scheduler {
       error: null,
       stopped: false,
       subagentCalls: new Set(),
+      shellCalls: new Set(),
       lastContextWrite: 0,
       runDir,
       followUp: w.objectiveIds.filter((id) => id !== objective?.id),
@@ -336,6 +342,7 @@ export class Scheduler {
 
     try {
       if (!fs.existsSync(agent.workspace.path)) throw new Error(`Workspace is missing: ${agent.workspace.path}`);
+      void this.d.demolition?.prime(agent.workspace.path);
       fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
       const superior = agent.reportsTo ? store.getAgent(agent.reportsTo) : null;
       const instructionsPath = path.join(runDir, "instructions.md");
@@ -460,6 +467,7 @@ export class Scheduler {
           a.subagentCalls.add(ev.id);
           store.setRuntime(a.agentId, { subagents: a.subagentCalls.size }, false);
         }
+        if (SHELL_TOOLS.has(ev.name)) a.shellCalls.add(ev.id);
         const act = toolActivity(ev.name, ev.input);
         const target = toRepoPath(act.rawPath, a.cwd, agent.workspace.path, theater.root);
         if (ev.parentToolUseId) return; // subagent internals: keep the parent's posture
@@ -481,6 +489,7 @@ export class Scheduler {
       }
       case "tool_result": {
         if (a.subagentCalls.delete(ev.toolUseId)) store.setRuntime(a.agentId, { subagents: a.subagentCalls.size }, false);
+        if (a.shellCalls.delete(ev.toolUseId)) void this.d.demolition?.check(agent, agent.workspace.path);
         if (ev.parentToolUseId) return;
         store.addFeed(theater.id, {
           agentId: a.agentId,

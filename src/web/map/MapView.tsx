@@ -14,7 +14,12 @@ interface Mover {
   top: number;
   path: { x: number; z: number; top: number }[];
   facing: 1 | -1;
+  /** Travelling by helicopter (waiting, boarding or aboard). */
+  lift: boolean;
 }
+
+/** On the move: walking, or aboard a helicopter. */
+type Motion = "walk" | "ride";
 
 interface Post {
   x: number;
@@ -23,6 +28,19 @@ interface Post {
 }
 
 const SPEED = 42; // world units / second
+
+/**
+ * Whether a move is a helicopter job: every deployment out of HQ, and long
+ * hops across the city. Short moves are walked.
+ */
+function airlift(city: CityModel, from: { x: number; z: number }, to: { x: number; z: number }): boolean {
+  const hq = city.hq.rect;
+  const atHq = (p: { x: number; z: number }) => p.x > hq.x - 12 && p.x < hq.x + hq.w + 12 && p.z > hq.y - 12 && p.z < hq.y + hq.h + 12;
+  if (atHq(to)) return false;
+  if (atHq(from)) return true;
+  const span = Math.max(city.bounds.w, city.bounds.h);
+  return Math.hypot(to.x - from.x, to.z - from.z) > Math.max(60, span * 0.3);
+}
 
 function accessoryFor(a: AgentView, roles: RoleView[]): string {
   if (a.external) return "none";
@@ -95,8 +113,9 @@ export function MapView() {
   const movers = useRef(new Map<string, Mover>());
   const postsRef = useRef(new Map<string, Post>());
   const postsCityRef = useRef<CityModel | null>(null);
-  const [walking, setWalking] = useState<Record<string, boolean>>({});
-  const walkingRef = useRef<Record<string, boolean>>({});
+  const [motion, setMotion] = useState<Record<string, Motion>>({});
+  const motionRef = useRef<Record<string, Motion>>({});
+  const seenStrikes = useRef(new Set<string>());
   const [hover, setHover] = useState<{ b: Building; x: number; y: number } | null>(null);
 
   const city = useStore((s) => s.city);
@@ -106,7 +125,11 @@ export function MapView() {
   const roles = useStore((s) => s.roles);
   const selectedId = useStore((s) => s.selectedAgentId);
   const pingMode = useStore((s) => s.pingMode);
+  const pingTarget = useStore((s) => s.pingTarget);
   const zoomPct = useStore((s) => s.zoomPct);
+  const strikes = useStore((s) => s.strikes);
+  const destroyed = useStore((s) => s.destroyed);
+  const destroyedSet = useMemo(() => new Set(destroyed), [destroyed]);
 
   const agents = useMemo(() => Object.values(agentsMap).filter((a) => a.status !== "terminated"), [agentsMap]);
   const needs = useMemo(() => new Set(pendingApprovals(approvals).map((a) => a.agentId)), [approvals]);
@@ -119,7 +142,10 @@ export function MapView() {
       onClick: (b, _world, ev) => {
         const st = useStore.getState();
         if (st.pingMode && b) {
-          st.set({ pingMode: false, pingTarget: b.path, objectivesOpen: true });
+          // Ripple first, then open the objectives board on the pinged building.
+          map.ping(b.path);
+          st.set({ pingMode: false, pingTarget: b.path });
+          setTimeout(() => useStore.getState().pingTarget === b.path && useStore.getState().set({ objectivesOpen: true }), 700);
           return;
         }
         if (b && !ev.shiftKey) st.set({ focusPath: b.path });
@@ -133,9 +159,32 @@ export function MapView() {
     const tick = (now: number) => {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
-      const nextWalking: Record<string, boolean> = {};
+      const nextMotion: Record<string, Motion> = {};
       for (const [id, m] of movers.current) {
-        const goal = m.path[0];
+        const ride = m.lift ? map.air.liftState(id) : null;
+        if (m.lift && !ride) m.lift = false;
+        if (ride) {
+          // The air wing has this agent: walking out to the pad, aboard, or fast-roping down.
+          if (Math.abs(ride.x - m.x) > 0.05) m.facing = ride.x < m.x ? -1 : 1;
+          m.x = ride.x;
+          m.z = ride.z;
+          m.top = ride.top;
+          if (ride.walking) nextMotion[id] = "walk";
+          else if (ride.embarked) nextMotion[id] = "ride";
+          if (ride.phase === "done" || ride.phase === "abandoned") {
+            map.air.endLift(id);
+            m.lift = false;
+            // Walk the rest of the way (all of it, if no helicopter came).
+            const post = postsRef.current.get(id);
+            if (post && Math.hypot(post.x - m.x, post.z - m.z) > 0.5) {
+              m.path = [
+                { x: post.x, z: m.z, top: 0.4 },
+                { x: post.x, z: post.z, top: post.top },
+              ];
+            }
+          }
+        }
+        const goal = m.lift ? undefined : m.path[0];
         if (goal) {
           const dx = goal.x - m.x;
           const dz = goal.z - m.z;
@@ -152,7 +201,7 @@ export function MapView() {
             m.z += (dz / dist) * step;
             m.top = 0.4;
           }
-          nextWalking[id] = m.path.length > 0;
+          if (m.path.length) nextMotion[id] = "walk";
         }
         mapRef.positions.set(id, { x: m.x, z: m.z });
         const el = markerEls.current.get(id);
@@ -163,12 +212,12 @@ export function MapView() {
           el.dataset.facing = String(m.facing);
         }
       }
-      // Re-render only when someone starts or stops walking.
-      const prev = walkingRef.current;
-      const changed = Object.keys(nextWalking).some((k) => prev[k] !== nextWalking[k]) || Object.keys(prev).some((k) => prev[k] && !nextWalking[k]);
+      // Re-render only when someone starts or stops moving.
+      const prev = motionRef.current;
+      const changed = Object.keys(nextMotion).some((k) => prev[k] !== nextMotion[k]) || Object.keys(prev).some((k) => !nextMotion[k]);
       if (changed) {
-        walkingRef.current = nextWalking;
-        setWalking(nextWalking);
+        motionRef.current = nextMotion;
+        setMotion(nextMotion);
       }
       positionStatic(map);
       drawLines(map);
@@ -222,7 +271,7 @@ export function MapView() {
         }
       }
       // Movement order: dashed line to the destination (BF6 squad order style).
-      const dest = m.path[m.path.length - 1];
+      const dest = m.path[m.path.length - 1] ?? (m.lift ? postsRef.current.get(a.id) : undefined);
       if (dest) {
         const to = map.project(dest.x, dest.top + 1.5, dest.z);
         parts.push(`<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" class="ln-move"/>`);
@@ -244,6 +293,23 @@ export function MapView() {
     if (city && mapRef.map) mapRef.map.setCity(city);
   }, [city]);
 
+  // Deleted files: the gunship brings their buildings down (live), or they're already rubble (on load).
+  useEffect(() => {
+    const map = mapRef.map;
+    if (!map || !city) return;
+    for (const st of strikes) {
+      if (seenStrikes.current.has(st.id)) continue;
+      seenStrikes.current.add(st.id);
+      map.strike(st.paths);
+    }
+  }, [strikes, city]);
+  useEffect(() => {
+    if (city && mapRef.map) mapRef.map.setDestroyed(destroyed);
+  }, [destroyed, city]);
+
+  // A ping stays lit while its objective is being written.
+  useEffect(() => mapRef.map?.holdPing(pingTarget), [pingTarget]);
+
   // Posts → movement paths.
   useEffect(() => {
     if (!city) return;
@@ -252,21 +318,43 @@ export function MapView() {
     postsCityRef.current = city;
     const posts = computePosts(city, agents, objectives, held);
     postsRef.current = posts;
+    const air = mapRef.map?.air;
     for (const [id, post] of posts) {
       const m = movers.current.get(id);
       if (!m) {
-        movers.current.set(id, { x: post.x, z: post.z, top: post.top, path: [], facing: 1 });
+        movers.current.set(id, { x: post.x, z: post.z, top: post.top, path: [], facing: 1, lift: false });
         continue;
+      }
+      if (m.lift && air) {
+        const ride = air.liftState(id);
+        // Still waiting for a helicopter and the new post is a short walk: walk it.
+        if (ride?.phase === "queued" && !airlift(city, m, post)) {
+          air.endLift(id);
+          m.lift = false;
+        } else {
+          air.retarget(id, post);
+          continue;
+        }
       }
       const end = m.path[m.path.length - 1] ?? { x: m.x, z: m.z };
       if (Math.hypot(end.x - post.x, end.z - post.z) < 0.5) continue;
+      if (air && airlift(city, m, post)) {
+        m.path = [];
+        m.lift = true;
+        air.requestLift(id, { x: m.x, z: m.z, top: m.top }, post);
+        continue;
+      }
       // Move along the street grid: east-west first, then north-south.
       m.path = [
         { x: post.x, z: m.z, top: 0.4 },
         { x: post.x, z: post.z, top: post.top },
       ];
     }
-    for (const id of [...movers.current.keys()]) if (!posts.has(id)) movers.current.delete(id);
+    for (const id of [...movers.current.keys()]) {
+      if (posts.has(id)) continue;
+      movers.current.delete(id);
+      air?.endLift(id);
+    }
   }, [city, agents, objectives]);
 
   // Building highlights + capture zones.
@@ -338,7 +426,7 @@ export function MapView() {
         {agents.map((a) => {
           const state = markerState(a, needs.has(a.id));
           const selected = a.id === selectedId;
-          const activity: MascotActivity = walking[a.id] ? "walking" : a.external && a.status !== "running" ? "idle" : a.activity;
+          const activity: MascotActivity = motion[a.id] === "walk" ? "walking" : a.external && a.status !== "running" ? "idle" : a.activity;
           const quietIdle = !a.external && a.status === "idle" && Date.now() - a.lastEventAt > 10 * 60_000;
           return (
             <div
@@ -347,7 +435,7 @@ export function MapView() {
                 if (el) markerEls.current.set(a.id, el);
                 else markerEls.current.delete(a.id);
               }}
-              className={`agent-marker ms-${state}${selected ? " selected" : ""}${a.external ? " external" : ""}${a.teamLeadId ? " mate" : ""}${zoomPct > 120 ? " close" : ""}`}
+              className={`agent-marker ms-${state}${selected ? " selected" : ""}${a.external ? " external" : ""}${a.teamLeadId ? " mate" : ""}${zoomPct > 120 ? " close" : ""}${motion[a.id] === "ride" ? " embarked" : ""}`}
               onClick={(e) => {
                 e.stopPropagation();
                 const st = useStore.getState();
@@ -390,6 +478,7 @@ export function MapView() {
             {hover.b.cluster > 1 ? `${hover.b.cluster} files · ` : ""}
             {hover.b.asset ? fileSize(hover.b.bytes) : `${hover.b.lines.toLocaleString()} lines`}
           </div>
+          {destroyedSet.has(hover.b.path) && <div className="tt-destroyed">Destroyed: file deleted</div>}
           {pingMode && <div className="tt-ping">Click to create an objective here</div>}
         </div>
       )}

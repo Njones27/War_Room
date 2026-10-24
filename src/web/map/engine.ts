@@ -20,6 +20,7 @@ import {
   PerspectiveCamera,
   Plane,
   PlaneGeometry,
+  Quaternion,
   Raycaster,
   Scene,
   Shape,
@@ -33,6 +34,8 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import type { Building, CityModel, Point, Rect } from "../../shared/city";
+import { AirWing, type StrikeTarget } from "./air";
+import { airfieldFor, worldExtent } from "./airfield";
 import { createCamoTexture, createContourTexture } from "./camo";
 
 export type ZoneTone = "cyan" | "orange" | "yellow";
@@ -64,7 +67,27 @@ const C = {
   tree: new Color(0x26393d),
   treeB: new Color(0x31474b),
   hq: 0x34434e,
+  ruin: new Color(0x2a2724),
 };
+
+const COLLAPSE_SECONDS = 1.5;
+/** How long a pinged building stays lit once nothing is holding the ping. */
+const PING_MS = 15_000;
+
+interface Ruin {
+  /** Seconds into the collapse. */
+  t: number;
+  /** Footprint and height of the intact instance. */
+  x: number;
+  bottom: number;
+  z: number;
+  w: number;
+  height: number;
+  d: number;
+  tilt: Vector3;
+  from: Color;
+  settled: boolean;
+}
 
 function shapeFrom(points: Point[]): Shape {
   const s = new Shape();
@@ -128,6 +151,23 @@ export class WarMap {
   private readonly camo = createCamoTexture();
   private readonly contour = createContourTexture();
   private readonly sun = new DirectionalLight(0xfffaf2, 2.1);
+  /** Aircraft, airlifts and strikes. */
+  readonly air = new AirWing();
+  private roofMesh: InstancedMesh | null = null;
+  /** Instances per building path (a building and its tower). */
+  private instancesOf = new Map<string, number[]>();
+  /** Collapsing instances. */
+  private ruins = new Map<number, Ruin>();
+  /** Buildings down (or coming down). */
+  private ruined = new Set<string>();
+  /** Strike inbound: still standing until the round lands. */
+  private doomed = new Set<string>();
+  private shake = 0;
+  private shadowFrame = 0;
+  /** Buildings agents are working on, and their tones. */
+  private agentTones = new Map<string, ZoneTone>();
+  /** The building the Commander last pinged; `held` while its objective is being written. */
+  private pinged: { path: string; until: number; held: boolean } | null = null;
 
   private target = new Vector3();
   private distance = 400;
@@ -148,7 +188,7 @@ export class WarMap {
     private readonly canvas: HTMLCanvasElement,
     private readonly events: MapEvents,
   ) {
-    this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+    this.renderer = new WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
@@ -164,7 +204,7 @@ export class WarMap {
     this.sun.shadow.normalBias = 0.35;
     this.sun.shadow.radius = 3;
     this.scene.add(this.sun, this.sun.target);
-    this.scene.add(this.cityGroup, this.zoneGroup);
+    this.scene.add(this.cityGroup, this.zoneGroup, this.air.group);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas);
@@ -288,6 +328,10 @@ export class WarMap {
     const bmesh = new InstancedMesh(boxGeom, new MeshLambertMaterial({ color: 0xffffff }), Math.max(1, instances));
     this.instanceToBuilding = [];
     this.baseColors = [];
+    this.instancesOf = new Map();
+    this.ruins.clear();
+    this.ruined.clear();
+    this.doomed.clear();
     let k = 0;
     const col = new Color();
     city.buildings.forEach((bd, i) => {
@@ -302,6 +346,9 @@ export class WarMap {
         bmesh.setColorAt(k, col);
         this.baseColors[k] = col.clone();
         this.instanceToBuilding[k] = i;
+        const list = this.instancesOf.get(bd.path) ?? [];
+        list.push(k);
+        this.instancesOf.set(bd.path, list);
         k++;
       };
       put(bd.x, bd.y, bd.w, bd.h, 0, bd.height, bd.shade);
@@ -315,6 +362,7 @@ export class WarMap {
     g.add(bmesh);
 
     // Rooftop clutter.
+    this.roofMesh = null;
     if (city.roofs.length) {
       const roofs = new InstancedMesh(boxGeom, new MeshLambertMaterial({ color: C.roof }), city.roofs.length);
       city.roofs.forEach((r, i) => {
@@ -325,14 +373,17 @@ export class WarMap {
       });
       roofs.castShadow = true;
       roofs.receiveShadow = true;
+      this.roofMesh = roofs;
       g.add(roofs);
     }
 
-    // Trees: dark teal canopies.
-    if (city.trees.length) {
+    // Trees: dark teal canopies (none on the HQ airfield).
+    const clear = airfieldFor(city).clear;
+    const treesHere = city.trees.filter((t) => !clear.some((r) => t.x > r.x - t.r && t.x < r.x + r.w + t.r && t.y > r.y - t.r && t.y < r.y + r.h + t.r));
+    if (treesHere.length) {
       const treeGeom = new IcosahedronGeometry(1, 1);
-      const trees = new InstancedMesh(treeGeom, new MeshLambertMaterial({ color: 0xffffff, flatShading: true }), city.trees.length);
-      city.trees.forEach((t, i) => {
+      const trees = new InstancedMesh(treeGeom, new MeshLambertMaterial({ color: 0xffffff, flatShading: true }), treesHere.length);
+      treesHere.forEach((t, i) => {
         tmp.position.set(t.x, t.r * 0.75, t.y);
         tmp.scale.set(t.r, t.r * 0.85, t.r);
         tmp.rotation.y = (i * 1.7) % Math.PI;
@@ -360,10 +411,13 @@ export class WarMap {
     this.cityGroup = g;
     this.scene.add(g);
 
-    // Sun from the north-east so shadows fall to the lower-left, as in BF6.
-    const radius = span * 0.75;
-    this.sun.position.set(cx + radius * 0.5, radius * 1.1, cz - radius * 0.6);
-    this.sun.target.position.set(cx, 0, cz);
+    // Sun from the north-east so shadows fall to the lower-left, as in BF6. Its shadows cover the airbase too.
+    const world = this.extent()!;
+    const radius = Math.max(world.w, world.h) * 0.75;
+    const sx = world.x + world.w / 2;
+    const sz = world.y + world.h / 2;
+    this.sun.position.set(sx + radius * 0.5, radius * 1.1, sz - radius * 0.6);
+    this.sun.target.position.set(sx, 0, sz);
     const sc = this.sun.shadow.camera;
     sc.left = -radius;
     sc.right = radius;
@@ -373,6 +427,7 @@ export class WarMap {
     sc.far = radius * 4;
     sc.updateProjectionMatrix();
     this.renderer.shadowMap.needsUpdate = true;
+    this.air.setCity(city, this.sun.target.position.clone().sub(this.sun.position).normalize());
 
     this.computeFit();
     if (first) this.resetCamera(true);
@@ -389,9 +444,38 @@ export class WarMap {
 
   // ── Dynamic overlays ──────────────────────────────────────────────────────
 
-  /** Tint buildings agents are working on. */
+  /** Tint buildings agents are working on (they're also the air wing's targets). */
   setHighlights(paths: Map<string, ZoneTone>): void {
     if (!this.buildingMesh || !this.city) return;
+    this.agentTones = paths;
+    this.air.setTargets([...paths.keys()].filter((p) => !this.ruined.has(p) && !this.doomed.has(p)).flatMap((p) => this.targetOf(p) ?? []));
+    this.applyHighlights();
+  }
+
+  /** Ping a building: yellow rings ripple out from it, and it stays lit yellow for a while. */
+  ping(path: string): void {
+    const t = this.targetOf(path);
+    if (!t) return;
+    this.pinged = { path, until: performance.now() + PING_MS, held: false };
+    this.air.fx.ripple(t.x, t.height + 0.5, t.z, Math.max(t.w, t.h) * 0.6 + 1, TONES.yellow);
+    this.applyHighlights();
+  }
+
+  /** Keep the ping lit while `path` is the ping being acted on; once let go, it fades after a while. */
+  holdPing(path: string | null): void {
+    const p = this.pinged;
+    if (!p) return;
+    if (path === p.path) p.held = true;
+    else if (p.held) {
+      p.held = false;
+      p.until = performance.now() + PING_MS;
+    }
+  }
+
+  private applyHighlights(): void {
+    if (!this.buildingMesh || !this.city) return;
+    const paths = new Map(this.agentTones);
+    if (this.pinged) paths.set(this.pinged.path, "yellow");
     const next = new Map<number, ZoneTone>();
     for (let k = 0; k < this.instanceToBuilding.length; k++) {
       const bd = this.city.buildings[this.instanceToBuilding[k]!];
@@ -433,11 +517,128 @@ export class WarMap {
     this.camView = rect && focus ? { rect, focus: new Vector3(focus.x, 0, focus.z) } : null;
   }
 
+  // ── Strikes ───────────────────────────────────────────────────────────────
+
+  /** Call the gunship in on these buildings; each comes down when the heavy round lands. */
+  strike(paths: string[]): void {
+    if (!this.city) return;
+    const targets: StrikeTarget[] = [];
+    for (const p of paths) {
+      const t = this.ruined.has(p) || this.doomed.has(p) ? null : this.targetOf(p);
+      if (!t) continue;
+      this.doomed.add(p);
+      this.air.dropTarget(p);
+      targets.push(t);
+    }
+    this.air.strike(targets, (t) => {
+      this.doomed.delete(t.path);
+      this.collapse(t.path, true);
+      this.shake = Math.min(1, this.shake + 0.7);
+    });
+  }
+
+  private targetOf(path: string): StrikeTarget | null {
+    const b = this.city?.buildings.find((x) => x.path === path);
+    return b ? { path, x: b.x + b.w / 2, z: b.y + b.h / 2, w: b.w, h: b.h, height: b.tower ? b.tower.height : b.height } : null;
+  }
+
+  /** Buildings destroyed before this page loaded: rubble, no fireworks. */
+  setDestroyed(paths: Iterable<string>): void {
+    for (const p of paths) if (!this.doomed.has(p)) this.collapse(p, false);
+  }
+
+  private collapse(path: string, animate: boolean): void {
+    const b = this.city?.buildings.find((x) => x.path === path);
+    const ks = this.instancesOf.get(path);
+    if (!this.buildingMesh || !this.city || !b || !ks || this.ruined.has(path)) return;
+    this.ruined.add(path);
+    const m = new Matrix4();
+    const pos = new Vector3();
+    const quat = new Quaternion();
+    const scl = new Vector3();
+    for (const k of ks) {
+      this.buildingMesh.getMatrixAt(k, m);
+      m.decompose(pos, quat, scl);
+      this.ruins.set(k, {
+        t: animate ? 0 : COLLAPSE_SECONDS,
+        x: pos.x,
+        bottom: pos.y,
+        z: pos.z,
+        w: scl.x,
+        height: scl.y,
+        d: scl.z,
+        tilt: new Vector3((Math.random() - 0.5) * 0.3, 0, (Math.random() - 0.5) * 0.3),
+        from: this.baseColors[k]!.clone(),
+        settled: false,
+      });
+    }
+    // Rooftop clutter goes down with the building.
+    const roofs = this.roofMesh;
+    if (roofs) {
+      const gone = new Matrix4().makeScale(0, 0, 0);
+      this.city.roofs.forEach((r, i) => {
+        const rx = r.x + r.w / 2;
+        const rz = r.y + r.h / 2;
+        if (rx > b.x && rx < b.x + b.w && rz > b.y && rz < b.y + b.h) roofs.setMatrixAt(i, gone);
+      });
+      roofs.instanceMatrix.needsUpdate = true;
+    }
+    const cx = b.x + b.w / 2;
+    const cz = b.y + b.h / 2;
+    const size = Math.max(b.w, b.h, 6);
+    if (animate) {
+      this.air.fx.collapseDust(cx, cz, size, size, b.tower ? b.tower.height : b.height);
+      this.air.fx.smolder(cx, 1, cz, size * 0.45, 45);
+    }
+    this.air.fx.scorch(cx, cz, size * 0.85 + 3);
+    this.air.fx.rubble(cx, cz, Math.max(b.w, 2), Math.max(b.h, 2));
+    this.stepRuins(0);
+  }
+
+  /** Buildings falling in on themselves: they drop, tilt, spread and char. */
+  private stepRuins(dt: number): void {
+    const mesh = this.buildingMesh;
+    if (!mesh || !this.ruins.size) return;
+    const tmp = new Object3D();
+    const c = new Color();
+    let falling = false;
+    let landed = false;
+    for (const [k, r] of this.ruins) {
+      if (r.settled) continue;
+      r.t += dt;
+      const p = Math.min(1, r.t / COLLAPSE_SECONDS);
+      const e = p * p;
+      const f = 1 - e * 0.9;
+      const jitter = (1 - p) * 0.25 * Math.min(1, r.t * 8);
+      tmp.position.set(r.x + Math.sin(r.t * 47) * jitter, 0.35 + (r.bottom - 0.35) * f, r.z + Math.cos(r.t * 53) * jitter);
+      tmp.rotation.set(r.tilt.x * e, 0, r.tilt.z * e);
+      tmp.scale.set(r.w * (1 + 0.18 * e), Math.max(0.3, r.height * f), r.d * (1 + 0.18 * e));
+      tmp.updateMatrix();
+      mesh.setMatrixAt(k, tmp.matrix);
+      c.copy(r.from).lerp(C.ruin, Math.min(1, p * 1.4));
+      mesh.setColorAt(k, c);
+      if (p >= 1) {
+        r.settled = true;
+        this.baseColors[k] = c.clone();
+        landed = true;
+      } else falling = true;
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.instanceColor!.needsUpdate = true;
+    // Shadows follow the collapse (every other frame while it falls).
+    if (landed || (falling && this.shadowFrame++ % 2 === 0)) this.renderer.shadowMap.needsUpdate = true;
+  }
+
   // ── Camera ────────────────────────────────────────────────────────────────
 
+  /** The city and the airbase outside it: what the camera frames. */
+  private extent(): Rect | null {
+    return this.city ? worldExtent(this.city, airfieldFor(this.city)) : null;
+  }
+
   private computeFit(): void {
-    if (!this.city) return;
-    const b = this.city.bounds;
+    const b = this.extent();
+    if (!b) return;
     const aspect = this.width / this.height;
     // Whole playable area plus a band of camo, like the deploy screen at 78%.
     const visibleH = Math.max(b.h, b.w / aspect) * 1.16;
@@ -445,8 +646,8 @@ export class WarMap {
   }
 
   resetCamera(instant = false): void {
-    if (!this.city) return;
-    const b = this.city.bounds;
+    const b = this.extent();
+    if (!b) return;
     this.wantTarget.set(b.x + b.w / 2, 0, b.y + b.h / 2 + b.h * 0.02);
     this.wantDistance = this.fitDistance;
     if (instant) {
@@ -482,8 +683,8 @@ export class WarMap {
   }
 
   private clampTarget(): void {
-    if (!this.city) return;
-    const b = this.city.bounds;
+    const b = this.extent();
+    if (!b) return;
     const m = Math.max(b.w, b.h) * 0.4;
     this.wantTarget.x = Math.min(b.x + b.w + m, Math.max(b.x - m, this.wantTarget.x));
     this.wantTarget.z = Math.min(b.y + b.h + m, Math.max(b.y - m, this.wantTarget.z));
@@ -550,13 +751,24 @@ export class WarMap {
     const k = 1 - Math.exp(-dt * 9);
     this.target.lerp(this.wantTarget, k);
     this.distance += (this.wantDistance - this.distance) * k;
-    this.placeCamera(this.camera, this.target, this.distance, TILT);
+    // A heavy round landing shakes the view a little.
+    this.shake = Math.max(0, this.shake - dt * 1.6);
+    const amp = this.shake * this.shake * this.distance * 0.006;
+    this.placeCamera(this.camera, amp ? this.target.clone().add(new Vector3((Math.random() - 0.5) * amp, 0, (Math.random() - 0.5) * amp)) : this.target, this.distance, TILT);
+
+    this.stepRuins(dt);
+    this.air.update(dt, this.pxPerWorld(), this.distance * Math.cos(TILT));
+    if (this.pinged && !this.pinged.held && now > this.pinged.until) {
+      this.pinged = null;
+      this.applyHighlights();
+    }
 
     // Pulse highlighted buildings.
     if (this.buildingMesh && this.highlighted.size) {
       const pulse = 0.55 + 0.45 * Math.sin(now / 260);
       const c = new Color();
       for (const [kIdx, tone] of this.highlighted) {
+        if (this.ruins.get(kIdx)?.settled === false) continue;
         c.copy(this.baseColors[kIdx]!).lerp(new Color(TONES[tone]), 0.35 + 0.3 * pulse);
         this.buildingMesh.setColorAt(kIdx, c);
       }

@@ -86,6 +86,20 @@
   position: relative;
   z-index: 1;
 }
+/* Aboard a helicopter: the unit's marker rides just above the aircraft. */
+.agent-marker.embarked .am-mascot {
+  display: none;
+}
+.agent-marker.embarked .am-shape {
+  transform: translateY(-44px) scale(0.8);
+}
+.agent-marker.embarked .am-label {
+  top: -60px;
+  transform: translate(-50%, -100%);
+}
+.agent-marker.embarked .am-label small {
+  display: none;
+}
 .am-shape::before {
   content: "";
   position: absolute;
@@ -433,6 +447,11 @@
   margin-top: 2px;
   font-size: 13px;
   color: var(--yellow);
+}
+.tt-destroyed {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--orange);
 }
 
 /* ── Screen frame ─────────────────────────────────────────────────────────── */
@@ -787,6 +806,9 @@
 }
 .comms-line.k-mission {
   color: var(--yellow);
+}
+.comms-line.k-strike {
+  color: var(--orange);
 }
 .comms-line.k-sitrep,
 .comms-line.k-radio {
