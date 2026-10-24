@@ -114,6 +114,8 @@ class Layer {
   private readonly c0: Float32Array;
   private readonly c1: Float32Array;
   private cursor = 0;
+  /** Whether anything was alive last frame (its fade-out still needs uploading). */
+  private wasLive = false;
   private readonly geom = new BufferGeometry();
   private readonly vp = new Vector4();
 
@@ -225,9 +227,11 @@ class Layer {
       this.rot[i] = this.rot[i]! + this.st[s + 7]! * dt;
       for (let c = 0; c < 3; c++) this.col[v + c] = this.c0[v + c]! + (this.c1[v + c]! - this.c0[v + c]!) * Math.min(1, k * 1.6);
     }
-    if (live || this.cursor) {
+    // Upload only while particles are alive, plus the frame that retires the last of them.
+    if (live || this.wasLive) {
       for (const name of ["position", "aColor", "aSize", "aAlpha", "aRot"]) this.geom.attributes[name]!.needsUpdate = true;
     }
+    this.wasLive = live;
   }
 
   clear(): void {
@@ -322,7 +326,11 @@ export class Fx {
     this.shards.length = 0;
     this.debris.count = 0;
     this.rubbleCount = this.rubbleMesh.count = 0;
-    for (const r of this.rings) this.group.remove(r.mesh);
+    for (const r of this.rings) {
+      this.group.remove(r.mesh);
+      r.mesh.geometry.dispose();
+      (r.mesh.material as MeshBasicMaterial).dispose();
+    }
     this.rings.length = 0;
     this.plumes.length = 0;
     for (const d of [...this.decals.children]) {

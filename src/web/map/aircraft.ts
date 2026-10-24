@@ -153,8 +153,7 @@ function kit() {
   const blur = new MeshBasicMaterial({ color: 0xd8eef6, transparent: true, opacity: 0, depthWrite: false, side: DoubleSide });
   const red = new MeshBasicMaterial({ color: 0xff4a3a, transparent: true });
   const green = new MeshBasicMaterial({ color: 0x5dff8a, transparent: true });
-  const white = new MeshBasicMaterial({ color: 0xffffff, transparent: true });
-  return { hull, dark, glass, blur, red, green, white };
+  return { hull, dark, glass, blur, red, green };
 }
 
 function assemble(kind: AircraftKind, length: number, parts: { hull: BufferGeometry[]; dark: BufferGeometry[]; glass: BufferGeometry[] }, m: ReturnType<typeof kit>, lights: { red: Pt3; green: Pt3; beacon: Pt3 }): Aircraft {
@@ -184,7 +183,7 @@ function assemble(kind: AircraftKind, length: number, parts: { hull: BufferGeome
     root,
     spinners: [],
     discs: [],
-    materials: [m.hull, m.dark, m.glass, m.blur, m.red, m.green, m.white],
+    materials: [m.hull, m.dark, m.glass, m.blur, m.red, m.green],
     casters,
     beacon,
     length,

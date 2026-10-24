@@ -342,7 +342,7 @@ export class Scheduler {
 
     try {
       if (!fs.existsSync(agent.workspace.path)) throw new Error(`Workspace is missing: ${agent.workspace.path}`);
-      void this.d.demolition?.prime(agent.workspace.path);
+      if (agent.workspace.kind === "main") void this.d.demolition?.prime();
       fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
       const superior = agent.reportsTo ? store.getAgent(agent.reportsTo) : null;
       const instructionsPath = path.join(runDir, "instructions.md");
@@ -489,7 +489,8 @@ export class Scheduler {
       }
       case "tool_result": {
         if (a.subagentCalls.delete(ev.toolUseId)) store.setRuntime(a.agentId, { subagents: a.subagentCalls.size }, false);
-        if (a.shellCalls.delete(ev.toolUseId)) void this.d.demolition?.check(agent, agent.workspace.path);
+        // Deletions in the main checkout bring buildings down; a worktree's come down when merged.
+        if (a.shellCalls.delete(ev.toolUseId) && agent.workspace.kind === "main") void this.d.demolition?.check(agent);
         if (ev.parentToolUseId) return;
         store.addFeed(theater.id, {
           agentId: a.agentId,

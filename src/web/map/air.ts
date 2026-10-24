@@ -26,7 +26,7 @@ import type { CityModel } from "../../shared/city";
 import { buildAircraft, type Aircraft, type AircraftKind } from "./aircraft";
 import { type Airfield, airfieldFor } from "./airfield";
 import { Fighter } from "./fighter";
-import { type Flyer, headingOf, reach, restHeight, separate, underside, wrap } from "./flight";
+import { clamp, type Flyer, headingOf, reach, restHeight, separate, underside, wrap } from "./flight";
 import { Fx } from "./fx";
 import { GUNS, GunStation, Tracers, type GunKind, type GunSpec } from "./guns";
 import { Ordnance } from "./ordnance";
@@ -189,7 +189,8 @@ function controlTower(height: number): { tower: Group; radar: Mesh; beacon: Mesh
   return { tower, radar, beacon };
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+/** How long a called strike's round waits for its target to come round off the left wing. */
+const ARC_WAIT = 4;
 
 export class AirWing {
   readonly group = new Group();
@@ -229,6 +230,8 @@ export class AirWing {
   private readonly stations = (["gau12", "bofors", "m102"] as const).map((kind, i) => ({ kind, gun: new GunStation(GUNS[kind], 1.5 + i * 2.2), target: null as StrikeTarget | null }));
   /** Buildings agents are working on: the gunship's targets. */
   private targets: StrikeTarget[] = [];
+  /** Buildings coming down or down: nobody attacks them any more. */
+  private down = new Set<string>();
   private time = 0;
   /** World scale: 1 for a ~320-unit map. */
   private k = 1;
@@ -255,6 +258,7 @@ export class AirWing {
     this.ordnance.clear();
     this.shots = [];
     this.targets = [];
+    this.down.clear();
     this.project.set(1, -sun.x / sun.y, 0, (sun.x / sun.y) * SHADOW_Y, 0, 0, 0, SHADOW_Y, 0, -sun.z / sun.y, 1, (sun.z / sun.y) * SHADOW_Y, 0, 0, 0, 1);
     this.field = airfieldFor(city);
     const t = this.field.tower;
@@ -265,6 +269,16 @@ export class AirWing {
   }
 
   private buildBase(f: Airfield): void {
+    // Free the old airbase's GPU resources (textures included) before building the new one.
+    this.base.traverse((o) => {
+      const m = o as Mesh;
+      if (!m.isMesh) return;
+      m.geometry.dispose();
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+        (mat as MeshLambertMaterial).map?.dispose();
+        mat.dispose();
+      }
+    });
     for (const c of [...this.base.children]) this.base.remove(c);
     const flat = (w: number, h: number, mat: MeshLambertMaterial, x: number, z: number, y: number) => {
       const m = new Mesh(new PlaneGeometry(w, h), mat);
@@ -316,6 +330,7 @@ export class AirWing {
           heights: () => this.heights!,
           k: () => this.k,
           targets: () => this.targets,
+          standing: (path) => !this.down.has(path),
           // Taking off waits for anyone departing or on the way in; committing to final waits for anyone departing or landing.
           runwayBusy: (self, depart) => this.jets.some((j) => j !== self && (depart ? j.runwayUse() !== "none" : ["departing", "landing"].includes(j.runwayUse()))),
           tracers: this.tracers,
@@ -618,11 +633,12 @@ export class AirWing {
     const g = this.gunship;
     if (!g || !targets.length) return;
     let at = Math.max(this.time + 0.4, ...this.shots.map((s) => s.at + 0.9));
-    // A clip of 40mm to range the building, then the 105mm.
+    // A clip of 40mm to range each building, then the 105mm. A big demolition goes faster: just the 105mm, a beat apart.
+    const brief = targets.length > 3;
     for (const t of targets) {
-      for (let i = 0; i < 4; i++) this.shots.push({ at: (at += 60 / GUNS.bofors.rpm), target: t, gun: "bofors" });
-      this.shots.push({ at: (at += 0.9), target: t, gun: "m102", onHit: () => onHit(t) });
-      at += 1.2;
+      if (!brief) for (let i = 0; i < 4; i++) this.shots.push({ at: (at += 60 / GUNS.bofors.rpm), target: t, gun: "bofors" });
+      this.shots.push({ at: (at += brief ? 1 : 0.9), target: t, gun: "m102", onHit: () => onHit(t) });
+      if (!brief) at += 1.2;
     }
     // Swing the orbit over the targets for a pylon turn.
     const cx = targets.reduce((s, t) => s + t.x, 0) / targets.length;
@@ -639,6 +655,7 @@ export class AirWing {
 
   /** Stop shooting at a building (it's coming down). */
   dropTarget(path: string): void {
+    this.down.add(path);
     this.targets = this.targets.filter((t) => t.path !== path);
     for (const st of this.stations) if (st.target?.path === path) st.target = null;
   }
@@ -663,7 +680,8 @@ export class AirWing {
     // Called strikes own the guns until the building is down.
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i]!;
-      if (s.at > this.time) continue;
+      // Wait (a little) for the target to come round off the left wing, where the guns point.
+      if (s.at > this.time || (!this.inArc(s.target) && this.time < s.at + ARC_WAIT)) continue;
       this.shots.splice(i, 1);
       const t = s.target;
       const spec = GUNS[s.gun];

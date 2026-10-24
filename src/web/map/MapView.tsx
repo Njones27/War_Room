@@ -25,6 +25,8 @@ interface Post {
   x: number;
   z: number;
   top: number;
+  /** The building it stands on, if any. */
+  on: string | null;
 }
 
 const SPEED = 42; // world units / second
@@ -52,9 +54,10 @@ function accessoryFor(a: AgentView, roles: RoleView[]): string {
  * Where each agent should stand right now. Working agents go to what they're
  * touching (or their objective's target); everyone else holds position, the
  * way units stay in the field. HQ is only where new agents start; teammates
- * start beside their lead.
+ * start beside their lead. Nobody stands on a building that's been brought
+ * down: they drop to street level on its rubble.
  */
-function computePosts(city: CityModel, agents: AgentView[], objectives: Record<string, ObjectiveView>, last: Map<string, Post>): Map<string, Post> {
+function computePosts(city: CityModel, agents: AgentView[], objectives: Record<string, ObjectiveView>, last: Map<string, Post>, ruined: Set<string>): Map<string, Post> {
   const posts = new Map<string, Post>();
   const crowd = new Map<string, number>();
   const pads = city.hq.pads;
@@ -73,26 +76,27 @@ function computePosts(city: CityModel, agents: AgentView[], objectives: Record<s
     const held = last.get(a.id);
     let p: Post;
     if (!where && held) {
-      p = held;
+      p = held.on && ruined.has(held.on) ? { ...held, top: 0.4 } : held;
     } else if (where) {
       const key = `${Math.round(where.x)}:${Math.round(where.z)}`;
       const n = crowd.get(key) ?? 0;
       crowd.set(key, n + 1);
       const ang = n * 2.4;
       const r = n === 0 ? 0 : 5 + n * 1.5;
-      p = { x: where.x + Math.cos(ang) * r, z: where.z + Math.sin(ang) * r, top: where.top };
+      const on = where.building?.path ?? null;
+      p = { x: where.x + Math.cos(ang) * r, z: where.z + Math.sin(ang) * r, top: on && ruined.has(on) ? 0.4 : where.top, on };
     } else if (a.teamLeadId && posts.has(a.teamLeadId)) {
       const lead = posts.get(a.teamLeadId)!;
       const i = mateIdx.get(a.teamLeadId) ?? 0;
       mateIdx.set(a.teamLeadId, i + 1);
       const ang = 0.7 + i * 1.9;
-      p = { x: lead.x + Math.cos(ang) * 8, z: lead.z + Math.sin(ang) * 8, top: lead.top };
+      p = { x: lead.x + Math.cos(ang) * 8, z: lead.z + Math.sin(ang) * 8, top: lead.top, on: lead.on };
     } else if (a.external) {
       const hq = city.hq.rect;
-      p = { x: hq.x + hq.w * (0.15 + (extIdx++ % 5) * 0.17), z: hq.y + hq.h * 0.92, top: 0.4 };
+      p = { x: hq.x + hq.w * (0.15 + (extIdx++ % 5) * 0.17), z: hq.y + hq.h * 0.92, top: 0.4, on: null };
     } else {
       const pad = pads[padIdx++ % pads.length] ?? [city.hq.rect.x, city.hq.rect.y];
-      p = { x: pad[0], z: pad[1], top: 0.4 };
+      p = { x: pad[0], z: pad[1], top: 0.4, on: null };
     }
     posts.set(a.id, p);
   }
@@ -316,7 +320,7 @@ export function MapView() {
     // A rescan moves buildings, so held positions only carry over within one city.
     const held = postsCityRef.current === city ? postsRef.current : new Map<string, Post>();
     postsCityRef.current = city;
-    const posts = computePosts(city, agents, objectives, held);
+    const posts = computePosts(city, agents, objectives, held, destroyedSet);
     postsRef.current = posts;
     const air = mapRef.map?.air;
     for (const [id, post] of posts) {
@@ -337,7 +341,13 @@ export function MapView() {
         }
       }
       const end = m.path[m.path.length - 1] ?? { x: m.x, z: m.z };
-      if (Math.hypot(end.x - post.x, end.z - post.z) < 0.5) continue;
+      if (Math.hypot(end.x - post.x, end.z - post.z) < 0.5) {
+        // Same spot, new height (its building came down): settle onto the rubble.
+        const last = m.path[m.path.length - 1];
+        if (last) last.top = post.top;
+        else if (!m.lift) m.top = post.top;
+        continue;
+      }
       if (air && airlift(city, m, post)) {
         m.path = [];
         m.lift = true;
@@ -355,7 +365,7 @@ export function MapView() {
       movers.current.delete(id);
       air?.endLift(id);
     }
-  }, [city, agents, objectives]);
+  }, [city, agents, objectives, destroyedSet]);
 
   // Building highlights + capture zones.
   useEffect(() => {

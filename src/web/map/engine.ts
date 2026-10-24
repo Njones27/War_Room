@@ -158,6 +158,12 @@ export class WarMap {
   private instancesOf = new Map<string, number[]>();
   /** Collapsing instances. */
   private ruins = new Map<number, Ruin>();
+  /** How many of them are still falling. */
+  private falling = 0;
+  private readonly ruinTmp = new Object3D();
+  private readonly ruinColor = new Color();
+  /** The city plus the airbase outside it: what the camera frames. */
+  private world: Rect | null = null;
   /** Buildings down (or coming down). */
   private ruined = new Set<string>();
   /** Strike inbound: still standing until the round lands. */
@@ -330,6 +336,7 @@ export class WarMap {
     this.baseColors = [];
     this.instancesOf = new Map();
     this.ruins.clear();
+    this.falling = 0;
     this.ruined.clear();
     this.doomed.clear();
     let k = 0;
@@ -378,7 +385,9 @@ export class WarMap {
     }
 
     // Trees: dark teal canopies (none on the HQ airfield).
-    const clear = airfieldFor(city).clear;
+    const field = airfieldFor(city);
+    this.world = worldExtent(city, field);
+    const clear = field.clear;
     const treesHere = city.trees.filter((t) => !clear.some((r) => t.x > r.x - t.r && t.x < r.x + r.w + t.r && t.y > r.y - t.r && t.y < r.y + r.h + t.r));
     if (treesHere.length) {
       const treeGeom = new IcosahedronGeometry(1, 1);
@@ -559,6 +568,7 @@ export class WarMap {
     for (const k of ks) {
       this.buildingMesh.getMatrixAt(k, m);
       m.decompose(pos, quat, scl);
+      this.falling++;
       this.ruins.set(k, {
         t: animate ? 0 : COLLAPSE_SECONDS,
         x: pos.x,
@@ -598,9 +608,10 @@ export class WarMap {
   /** Buildings falling in on themselves: they drop, tilt, spread and char. */
   private stepRuins(dt: number): void {
     const mesh = this.buildingMesh;
-    if (!mesh || !this.ruins.size) return;
-    const tmp = new Object3D();
-    const c = new Color();
+    // Settled rubble is static: only touch the buffers while something is falling.
+    if (!mesh || !this.falling) return;
+    const tmp = this.ruinTmp;
+    const c = this.ruinColor;
     let falling = false;
     let landed = false;
     for (const [k, r] of this.ruins) {
@@ -619,6 +630,7 @@ export class WarMap {
       mesh.setColorAt(k, c);
       if (p >= 1) {
         r.settled = true;
+        this.falling--;
         this.baseColors[k] = c.clone();
         landed = true;
       } else falling = true;
@@ -633,7 +645,7 @@ export class WarMap {
 
   /** The city and the airbase outside it: what the camera frames. */
   private extent(): Rect | null {
-    return this.city ? worldExtent(this.city, airfieldFor(this.city)) : null;
+    return this.world;
   }
 
   private computeFit(): void {

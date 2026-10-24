@@ -85,7 +85,8 @@ export class Tracers {
 
   /** Fire one round; `onHit` runs when it arrives. */
   fire(from: Vector3, to: Vector3, gun: GunSpec, onHit: () => void): void {
-    if (this.rounds.length >= this.capacity) return;
+    // Pool full: the round lands at once rather than being lost (a strike's kill shot rides on it).
+    if (this.rounds.length >= this.capacity) return onHit();
     const d = to.clone().sub(from);
     const dist = d.length();
     this.rounds.push({ from: from.clone(), dir: d.normalize(), dist, travelled: 0, speed: gun.mv * SPEED_PER_MV * this.k, dash: gun.dash * this.k, onHit });

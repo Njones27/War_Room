@@ -106,7 +106,14 @@ async function main(): Promise<void> {
   for (const e of roles.errors) console.warn(`  ! ${e}`);
 
   let city = null as unknown as CityModel; // set by the first rescan below
-  const demolition = new Demolition({ store, bus, city: () => city, theater: () => theater });
+  const demolition = new Demolition({
+    store,
+    bus,
+    city: () => city,
+    theater: () => theater,
+    // Struck files came back (a branch switch, a stash pop): rebuild the city so their buildings return.
+    restored: () => void rescan().catch((err: Error) => console.warn(`  ! Rescan failed: ${err.message}`)),
+  });
   const rescan = async () => {
     const scan = await scanRepo(config.projectRoot);
     const g = await gitInfo(config.projectRoot);
@@ -131,7 +138,7 @@ async function main(): Promise<void> {
   const approvals = new Approvals(store, config.approvalTimeoutMs);
   let toolkit: Toolkit | null = null;
   const adapter = config.demo
-    ? createDemoAdapter({ store, toolkit: () => toolkit!, city: () => city, strike: (agent, paths) => demolition.strike(agent, paths) })
+    ? createDemoAdapter({ store, toolkit: () => toolkit!, city: () => city, strike: (agent, paths) => demolition.strike(agent, paths, true) })
     : createClaudeLocalAdapter(config.claudeBin);
   // Demo runs get a throwaway token; real runs keep one so the link can be bookmarked.
   const security = new Security(config.port, config.demo ? undefined : loadOrCreateToken(path.join(config.homeDir, "token")));

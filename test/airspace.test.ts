@@ -99,6 +99,7 @@ describe("F-35 sorties", () => {
       heights: () => heights,
       k: () => k,
       targets: () => targets,
+      standing: () => true,
       runwayBusy: (self: Fighter, depart: boolean) => jets.some((j) => j !== self && (depart ? j.runwayUse() !== "none" : ["departing", "landing"].includes(j.runwayUse()))),
       tracers: { fire: (_f: Vector3, _t: Vector3, _s: unknown, onHit: () => void) => (fired.rounds++, onHit()) } as unknown as Tracers,
       ordnance: {

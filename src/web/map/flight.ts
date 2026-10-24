@@ -97,7 +97,7 @@ export class Route {
   }
 }
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+export const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /**
  * Keep aircraft apart. Every mover's height band is reset, then for each pair

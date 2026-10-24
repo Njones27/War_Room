@@ -222,7 +222,21 @@ Nothing flies through anything:
 - The jets take turns with the runway.
 - Takeoffs and landings happen at the airbase over open ground, never over the city.
 
-When a file is deleted, the AC-130 fires on its building: tracers, a fireball, a shockwave, and a collapse into burning rubble. War Room notices deletions two ways. After each shell command an agent runs, it checks which of the map's files are gone from that agent's checkout or worktree. Every 5 seconds it also checks the main checkout, which catches deletions made outside War Room. More than 40 files vanishing at once looks like a branch switch, so that doesn't trigger a strike. The demo fakes a few deletions; it never deletes anything.
+When a file is deleted, the AC-130 fires on its building: tracers, a fireball, a shockwave, and a collapse into burning rubble.
+
+The city stands for your main checkout, so only deletions there bring buildings down. A deletion in an agent's worktree comes down when it's merged.
+
+War Room checks for deletions in two ways:
+- After each shell command that runs in the main checkout, it checks which of the map's files are gone.
+- Every 5 seconds it checks again, which catches deletions made outside War Room.
+
+Some vanishings don't trigger a strike, because they look like a branch switch or a mass move:
+- more than 40 files at once
+- most of a small repo at once
+
+If struck files come back (you switch back, or pop a stash), the city is rebuilt and their buildings return.
+
+The demo fakes a few deletions. It never deletes anything.
 
 ### Watch-only units
 

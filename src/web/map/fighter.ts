@@ -12,10 +12,10 @@ import { Vector3 } from "three";
 import type { CityModel } from "../../shared/city";
 import type { StrikeTarget } from "./air";
 import type { Airfield } from "./airfield";
-import { type Flyer, headingOf, reach, restHeight, Route, underside, wrap } from "./flight";
+import { clamp, type Flyer, headingOf, reach, restHeight, Route, underside, wrap } from "./flight";
 import type { Fx } from "./fx";
 import { GUNS, GunStation, type Tracers } from "./guns";
-import type { Ordnance } from "./ordnance";
+import type { Ordnance, Store } from "./ordnance";
 import type { HeightField } from "./terrain";
 
 /** Cruise speed, world units/s on a ~320-unit map. */
@@ -37,7 +37,7 @@ const LOOKAHEAD = 1.6;
 /** Seconds of flight ahead checked for buildings. */
 const LOOK_SECONDS = 2.5;
 
-type Weapon = "gun" | "bomb" | "missile";
+type Weapon = "gun" | Store;
 
 type Leg =
   | { kind: "goto"; x: number; z: number; alt: number; speed: number; climbout?: boolean }
@@ -62,14 +62,14 @@ export interface FighterDeps {
   k: () => number;
   /** Buildings agents are working on. */
   targets: () => StrikeTarget[];
+  /** Whether a building is still up (not struck or in rubble). */
+  standing: (path: string) => boolean;
   /** Whether another jet's use of the runway stops this one: taking off (`depart`) or committing to final. */
   runwayBusy: (self: Fighter, depart: boolean) => boolean;
   tracers: Tracers;
   ordnance: Ordnance;
   fx: Fx;
 }
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export class Fighter {
   readonly park = new Vector3();
@@ -340,6 +340,8 @@ export class Fighter {
       }
       case "attack": {
         const t = leg.target;
+        // The building's been brought down meanwhile: break off this pass.
+        if (!this.d.standing(t.path)) return { heading: f.heading, alt: leg.alt, speed: leg.speed, done: true };
         if (!leg.locked) {
           // Turn in toward the target; once pointing at it from far enough out, that line is the run.
           const bearing = headingOf(t.x - f.pos.x, t.z - f.pos.z);
@@ -416,7 +418,7 @@ export class Fighter {
   }
 
   /** A bomb off the belly or a missile off the wing, onto the roof. */
-  private release(t: StrikeTarget, store: "bomb" | "missile"): void {
+  private release(t: StrikeTarget, store: Store): void {
     const f = this.f;
     const root = f.ac.root;
     root.updateMatrixWorld();
