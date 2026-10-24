@@ -15,6 +15,7 @@ import { startDemoTeam, type DemoTeamHandle } from "./adapters/demoTeam.js";
 import type { Approvals } from "./approvals.js";
 import type { Bus } from "./bus.js";
 import type { WarRoomConfig } from "./config.js";
+import { SHELL_TOOLS, type Demolition } from "./demolition.js";
 import { agentEnv } from "./env.js";
 import { alwaysRuleFor, cliSafeRules, ruleMatches } from "./permissions.js";
 import { buildInstructions, buildWakePrompt, formatLiveOrder } from "./prompts.js";
@@ -42,6 +43,8 @@ export interface TeamDeps {
   permissionMode?: () => string;
   /** Demo mode: scripted teams instead of real Claude Code sessions. */
   demo?: { toolkit: () => Toolkit; city: () => CityModel };
+  /** Strikes buildings whose files the team's shell commands deleted. */
+  demolition?: Demolition;
 }
 
 type Json = Record<string, unknown>;
@@ -424,6 +427,7 @@ export class TeamOps implements LiveSessions {
 
       this.sessions.set(agent.id, s);
       this.byToken.set(token, s);
+      if (agent.workspace.kind === "main") void this.d.demolition?.prime();
       if (this.d.demo) {
         // Its transcripts live in the run dir, never in ~/.claude.
         s.tail.file = path.join(dir, "transcript", `${sessionId}.jsonl`);
@@ -755,6 +759,7 @@ export class TeamOps implements LiveSessions {
 
   private toolEnd(s: Session, lead: AgentView, mate: Mate | null, body: Json): void {
     const tool = str(body.tool_name);
+    if (SHELL_TOOLS.has(tool) && lead.workspace.kind === "main") void this.d.demolition?.check(mate?.view ?? lead);
     const response = body.tool_response;
     const r = obj(response);
     const spawned = tool === "Agent" && r.status === "teammate_spawned" ? str(obj(body.tool_input).name) : "";

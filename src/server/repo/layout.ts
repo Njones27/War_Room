@@ -332,7 +332,7 @@ export function layoutCity(tree: TreeNode, meta: { name: string; root: string; f
   // the top, the HQ badge on the left, staging pads for idle agents below.
   const hqW = clamp(cityH * 0.38, 48, 96);
   const hqH = hqW * 0.85;
-  const hq: Rect = { x: city.x - 30 - hqW, y: city.y + cityH * 0.5 - hqH / 2 + (rnd() - 0.5) * cityH * 0.15, w: hqW, h: hqH };
+  const hq: Rect = { x: city.x - 40 - hqW, y: city.y + cityH * 0.5 - hqH / 2 + (rnd() - 0.5) * cityH * 0.15, w: hqW, h: hqH };
   const hqZone = jaggedOutline(shrink(hq, -4), rnd, 2.5, 7);
   const pads: Point[] = [];
   for (let r = 0; r < 2; r++) for (let c = 0; c < 5; c++) pads.push([hq.x + hq.w * (0.14 + c * 0.18), hq.y + hq.h * (0.66 + r * 0.22)]);
@@ -360,7 +360,8 @@ export function layoutCity(tree: TreeNode, meta: { name: string; root: string; f
   ];
 
   const extent = union(city, hq);
-  const margin = 12 + 0.035 * Math.max(extent.w, extent.h);
+  // Room around the city for the air wing's airstrip, helipads and orbits.
+  const margin = 20 + 0.05 * Math.max(extent.w, extent.h);
   const boundary = jaggedOutline(shrink(extent, -margin), rnd, margin * 0.45, 16);
   const ringRoad = roundedRect(shrink(city, -4.5), 10);
 

@@ -7,6 +7,7 @@ import path from "node:path";
 import type { Activity, AgentStatus, AgentView, FeedItem, FrontView, TheaterView } from "../shared/protocol.js";
 import { toRepoPath, toolActivity } from "./activity.js";
 import type { Bus } from "./bus.js";
+import { inMainCheckout, SHELL_TOOLS, type Demolition } from "./demolition.js";
 import { listClaudeSessions, type ClaudeSessionInfo } from "./claudeCli.js";
 import { contentText } from "./streamParser.js";
 import { isWithin, newId, truncate } from "./util.js";
@@ -16,6 +17,8 @@ interface Unit {
   transcript: string | null;
   offset: number;
   feed: FeedItem[];
+  /** Shell commands seen but not yet finished: deletions are checked when their results land. */
+  shellCalls: Set<string>;
 }
 
 const TAIL_BYTES = 256 * 1024;
@@ -44,6 +47,7 @@ export class Watch {
     private readonly theater: () => TheaterView,
     private readonly managedSessionIds: () => Set<string>,
     private readonly intervalMs = 6000,
+    private readonly demolition: Demolition | null = null,
   ) {}
 
   start(): void {
@@ -141,6 +145,7 @@ export class Watch {
           transcript: transcriptPath(s.cwd, sid),
           offset: -1,
           feed: [],
+          shellCalls: new Set(),
         };
         this.units.set(sid, unit);
       }
@@ -193,6 +198,7 @@ export class Watch {
     if (lastNl < 0) return false;
     unit.offset += Buffer.byteLength(text.slice(0, lastNl + 1));
     let changed = false;
+    let shell = false;
     const v = unit.view;
     for (const line of text.slice(0, lastNl).split("\n")) {
       let o: Record<string, unknown>;
@@ -206,6 +212,7 @@ export class Watch {
       if (o.type === "assistant" && Array.isArray(message.content)) {
         for (const b of message.content as Record<string, unknown>[]) {
           if (b.type === "tool_use") {
+            if (SHELL_TOOLS.has(String(b.name)) && typeof b.id === "string") unit.shellCalls.add(b.id);
             const act = toolActivity(String(b.name), (b.input ?? {}) as Record<string, unknown>);
             const target = toRepoPath(act.rawPath, typeof o.cwd === "string" ? o.cwd : v.workspace.path, v.workspace.path, t.root);
             if (v.status === "running" && v.activity !== "needs_you") {
@@ -222,6 +229,9 @@ export class Watch {
         }
       } else if (o.type === "user" && o.isMeta !== true) {
         const c = message.content;
+        if (Array.isArray(c)) {
+          for (const b of c as Record<string, unknown>[]) if (b.type === "tool_result" && unit.shellCalls.delete(String(b.tool_use_id))) shell = true;
+        }
         if (typeof c === "string" && c.trim() && !c.startsWith("<")) {
           this.push(unit, { kind: "prompt", text: truncate(c, 2000) });
           changed = true;
@@ -234,6 +244,8 @@ export class Watch {
         }
       }
     }
+    // A finished shell command in the main checkout may have deleted files: the diff since the last check is struck.
+    if (shell && inMainCheckout(v.workspace.path, t.root)) void this.demolition?.check(v);
     return changed;
   }
 

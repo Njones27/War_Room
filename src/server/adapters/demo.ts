@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { CityModel } from "../../shared/city.js";
 import type { AgentView, ObjectiveView } from "../../shared/protocol.js";
+import type { Demolisher } from "../demolition.js";
 import type { StreamEvent } from "../streamParser.js";
 import type { Store } from "../store.js";
 import type { Toolkit } from "../toolkit.js";
@@ -16,6 +17,8 @@ interface DemoDeps {
   store: Store;
   toolkit: () => Toolkit;
   city: () => CityModel;
+  /** Strike a building as if its file were deleted (the demo never deletes anything). */
+  strike?: (by: Demolisher, paths: string[]) => void;
 }
 
 const TASKS: Record<string, { title: string; body: string }[]> = {
@@ -37,6 +40,7 @@ const TASKS: Record<string, { title: string; body: string }[]> = {
 };
 
 const sessionCost = new Map<string, number>();
+let demolitions = 0;
 
 /** The demo General's model picks, by the kind of work. */
 const PICKS: Record<string, { model: string; effort: string }> = {
@@ -175,6 +179,14 @@ export function createDemoAdapter(deps: DemoDeps): AgentAdapter {
           case "support": {
             for (const f of files(area, 1 + Math.floor(rnd() * 2))) {
               await tool("Edit", { file_path: abs(f), old_string: "…", new_string: "…" }, () => `Updated ${f}`);
+            }
+            // Engineers clear out dead code now and then; the building comes down on the map.
+            const [dead] = me.role === "engineer" && (demolitions === 0 || rnd() < 0.4) ? files(area, 1) : [];
+            if (dead) {
+              demolitions++;
+              say(`${dead} is dead code. Taking it out.`);
+              await tool("Bash", { command: `git rm ${dead}` }, () => `rm '${dead}'`);
+              deps.strike?.(me, [dead]);
             }
             const cmd = me.role === "support" ? "npm run build" : "npm test";
             const verdict = await kit.permission(caller, { tool_name: "Bash", input: { command: cmd, description: "Verify the change" } });
