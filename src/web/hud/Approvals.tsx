@@ -92,13 +92,14 @@ function Card({ a, index, count, onNext }: { a: ApprovalView; index: number; cou
 export function Approvals() {
   const approvals = useStore((s) => s.approvals);
   const pending = useMemo(() => pendingApprovals(approvals), [approvals]);
-  const [pick, setPick] = useState(0);
+  // Track the request you're looking at by id, so it stays put when others are resolved.
+  const [pickId, setPickId] = useState<string | null>(null);
   if (!pending.length) return null;
-  const index = pick % pending.length;
+  const index = Math.max(0, pending.findIndex((p) => p.id === pickId));
   const a = pending[index]!;
   return (
     <div className="approvals">
-      <Card key={a.id} a={a} index={index} count={pending.length} onNext={() => setPick(index + 1)} />
+      <Card key={a.id} a={a} index={index} count={pending.length} onNext={() => setPickId(pending[(index + 1) % pending.length]!.id)} />
     </div>
   );
 }

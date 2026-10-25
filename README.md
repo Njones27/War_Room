@@ -114,7 +114,7 @@ Panels and dialogs keep 14px text on any screen; only the map frame scales with 
 
 **Settings** (⚙ or **P**) are saved in your browser and apply right away:
 - **Quality**: render resolution and shadows (Low, Medium, High). Lower it if the map stutters.
-- **Explosions and effects**: Off, Low, Medium or High. Below Medium, aircraft only fire when a file is deleted; Off also turns off screen shake and the camera glitch.
+- **Explosions and effects**: Off, Low, Medium or High. Below Medium, aircraft only fire when a file is deleted and the screen doesn't shake; Off also drops the particles and the camera glitch.
 - **Vehicles**: on or off. Off hides the aircraft; agents walk everywhere, and a deleted file's building just collapses.
 - **Display**: agent name labels, the comms log, key hints, and screen decorations (vignette, dot grids, ruler).
 

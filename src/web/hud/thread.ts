@@ -5,7 +5,8 @@ export interface TraceStep {
   text: string;
   tool?: string;
   result?: string;
-  state: "run" | "ok" | "err";
+  /** stopped: the sortie ended before the tool reported back (recalled, crashed). */
+  state: "run" | "ok" | "err" | "stopped";
 }
 
 export type ThreadEntry =
@@ -15,6 +16,7 @@ export type ThreadEntry =
       at: number;
       /** you: the Commander. agent: this agent. other: another agent writing to it. */
       from: "you" | "agent" | "other";
+      /** "commander", an agent id, or (for orders known only from the feed) the sender's "A·Callsign". */
       authorId: string;
       /** Who an outgoing message from this agent went to. */
       to?: string;
@@ -28,25 +30,41 @@ export type ThreadEntry =
 
 type Msg = Extract<ThreadEntry, { kind: "msg" }>;
 
+/** How far apart an order-log row and its live "order" feed item can be and still be the same order. */
+const ECHO_MS = 10 * 60_000;
+
+/** An "order" feed item's text: "Commander: …" or "A·Callsign: …". */
+const splitOrder = (text: string) => /^(.+?): ([\s\S]*)$/.exec(text);
+
 /**
  * One agent's conversation: orders to and from it (from the order log, so queued
  * orders show too), its replies, and its tool calls folded into a trace under the
- * reply they followed. Live-delivered "order" feed items repeat the order log and
- * are skipped.
+ * reply they followed. A live-delivered "order" feed item repeats an order-log row
+ * and is skipped; one with no row (orders relayed to a teammate) is shown.
+ * `running`: whether the agent is on a sortie now; if not, unfinished steps show as stopped.
  */
-export function buildThread(agentId: string, feed: FeedItem[], orders: OrderView[]): ThreadEntry[] {
+export function buildThread(agentId: string, feed: FeedItem[], orders: OrderView[], running = false): ThreadEntry[] {
   type Ev = { at: number; seq: number; feed?: FeedItem; order?: OrderView };
   const events: Ev[] = [];
-  feed.forEach((f, i) => f.kind !== "order" && events.push({ at: f.at, seq: i, feed: f }));
-  orders.forEach((o, i) => (o.agentId === agentId || o.author === agentId) && events.push({ at: o.createdAt, seq: feed.length + i, order: o }));
+  const mine = orders.filter((o) => o.agentId === agentId || o.author === agentId);
+  const echoes = (f: FeedItem, body: string) => mine.some((o) => o.agentId === agentId && o.body === body && Math.abs(o.createdAt - f.at) < ECHO_MS);
+  feed.forEach((f, i) => {
+    if (f.kind === "order") {
+      const m = splitOrder(f.text);
+      if (!m || echoes(f, m[2]!)) return;
+    }
+    events.push({ at: f.at, seq: i, feed: f });
+  });
+  mine.forEach((o, i) => events.push({ at: o.createdAt, seq: feed.length + i, order: o }));
   events.sort((a, b) => a.at - b.at || a.seq - b.seq);
 
   const out: ThreadEntry[] = [];
   const steps = new Map<string, TraceStep>();
   let last: Msg | null = null;
 
-  const closeRun = (runId: string | null) => {
-    for (const e of out) if (e.kind === "msg" && e.runId === runId) for (const s of e.steps) if (s.state === "run") s.state = "ok";
+  // Steps still waiting on a result: done when their sortie reports, stopped when it ended without a word.
+  const close = (match: (runId: string | null) => boolean, state: TraceStep["state"]) => {
+    for (const e of out) if (e.kind === "msg" && match(e.runId)) for (const s of e.steps) if (s.state === "run") s.state = state;
   };
 
   for (const ev of events) {
@@ -70,7 +88,17 @@ export function buildThread(agentId: string, feed: FeedItem[], orders: OrderView
     }
     const f = ev.feed!;
     switch (f.kind) {
+      case "order": {
+        // Relayed to a teammate: known only from the feed, as "Commander: …" or "A·Callsign: …".
+        const [, name, body] = splitOrder(f.text)!;
+        const you = name === "Commander";
+        out.push({ kind: "msg", id: f.id, at: f.at, from: you ? "you" : "other", authorId: you ? "commander" : name!, text: body!, runId: f.runId, steps: [] });
+        last = null;
+        break;
+      }
       case "prompt":
+        // A new sortie: anything left running in an earlier one never finished.
+        close((r) => r !== f.runId, "stopped");
         out.push({ kind: "briefing", id: f.id, at: f.at, text: f.text });
         last = null;
         break;
@@ -99,7 +127,7 @@ export function buildThread(agentId: string, feed: FeedItem[], orders: OrderView
         break;
       }
       case "result":
-        closeRun(f.runId);
+        close((r) => r === f.runId, "ok");
         out.push(f.isError ? { kind: "sys", id: f.id, at: f.at, text: f.text, err: true } : { kind: "sys", id: f.id, at: f.at, text: "Sortie complete" });
         last = null;
         break;
@@ -111,5 +139,6 @@ export function buildThread(agentId: string, feed: FeedItem[], orders: OrderView
         break;
     }
   }
+  if (!running) close(() => true, "stopped");
   return out;
 }

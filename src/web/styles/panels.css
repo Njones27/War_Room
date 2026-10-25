@@ -362,15 +362,10 @@ kbd {
   align-items: center;
 }
 
-/* Menus opened from a ⋯ button. */
-.menu-wrap {
-  position: relative;
-}
+/* Menus opened from a ⋯ button: fixed to the page (placed from the button), above dialogs. */
 .menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
-  z-index: 5;
+  position: fixed;
+  z-index: 60;
   min-width: 200px;
   padding: 5px;
   display: grid;
@@ -379,10 +374,7 @@ kbd {
   border: 1px solid var(--p-line-2);
   border-radius: var(--r);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-}
-.menu.down {
-  bottom: auto;
-  top: calc(100% + 6px);
+  font: 14px/1.4 var(--ui-font);
 }
 .menu button {
   display: flex;
@@ -1047,6 +1039,9 @@ button.obj-row:hover {
 .step .dot.err {
   background: var(--orange);
 }
+.step .dot.stopped {
+  background: var(--p-faint);
+}
 .step code {
   font-family: var(--mono);
   font-size: 12px;
@@ -1065,6 +1060,9 @@ button.obj-row:hover {
 }
 .step .res.err {
   color: var(--orange);
+}
+.step .res.stopped {
+  color: var(--p-faint);
 }
 .step pre {
   margin: 2px 10px 6px 27px;

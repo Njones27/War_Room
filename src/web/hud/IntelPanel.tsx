@@ -57,17 +57,20 @@ function Stat({ label, value, text, ctx, title }: { label: string; value: number
   );
 }
 
-function Trace({ steps, initiallyOpen }: { steps: TraceStep[]; initiallyOpen: boolean }) {
-  const [open, setOpen] = useState(initiallyOpen);
+/** A reply's tool calls. Open while it's the latest work, folded once newer messages arrive, unless you've toggled it. */
+function Trace({ steps, autoOpen }: { steps: TraceStep[]; autoOpen: boolean }) {
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? autoOpen;
   const errors = steps.filter((s) => s.state === "err").length;
   const running = steps.some((s) => s.state === "run");
-  const sum = errors ? `${errors} failed` : running ? "running" : "all passed";
+  const stopped = steps.some((s) => s.state === "stopped");
+  const sum = errors ? `${errors} failed` : running ? "running" : stopped ? "stopped" : "all passed";
   return (
     <div className={`trace${open ? " open" : ""}`}>
-      <button className="trace-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button className="trace-head" aria-expanded={open} onClick={() => setToggled(!open)}>
         <Icon name={open ? "chevDown" : "chevRight"} />
         Trace · {steps.length} {steps.length === 1 ? "step" : "steps"}
-        <span className={`sum${errors ? " err" : running ? "" : " ok"}`}>{sum}</span>
+        <span className={`sum${errors ? " err" : running || stopped ? "" : " ok"}`}>{sum}</span>
       </button>
       {open && (
         <div className="trace-steps">
@@ -76,7 +79,7 @@ function Trace({ steps, initiallyOpen }: { steps: TraceStep[]; initiallyOpen: bo
               <summary>
                 <i className={`dot${s.state === "ok" ? "" : ` ${s.state}`}`} />
                 <code title={s.text}>{s.text}</code>
-                <span className={`res${s.state === "ok" ? "" : ` ${s.state}`}`}>{s.state === "run" ? "running" : s.state === "err" ? "failed" : "done"}</span>
+                <span className={`res${s.state === "ok" ? "" : ` ${s.state}`}`}>{s.state === "run" ? "running" : s.state === "err" ? "failed" : s.state === "stopped" ? "stopped" : "done"}</span>
               </summary>
               {s.result && <pre className={s.state === "err" ? "err" : undefined}>{s.result}</pre>}
             </details>
@@ -110,7 +113,8 @@ function ChatTab({ agent, objective, onSendBack }: { agent: AgentView; objective
   const live = useStore((s) => s.live[agent.id]) ?? "";
   const agentsMap = useStore((s) => s.agents);
   const roles = useStore((s) => s.roles);
-  const entries = useMemo(() => buildThread(agent.id, feed ?? [], orders), [agent.id, feed, orders]);
+  const running = agent.status === "running";
+  const entries = useMemo(() => buildThread(agent.id, feed ?? [], orders, running), [agent.id, feed, orders, running]);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useLayoutEffect(() => {
@@ -119,14 +123,16 @@ function ChatTab({ agent, objective, onSendBack }: { agent: AgentView; objective
   }, [entries, live]);
 
   const accessoryOf = (a: AgentView | undefined) => (!a || a.external ? "none" : a.teamLeadId ? "helmet" : (roles.find((r) => r.id === a.role)?.accessory ?? "beret"));
-  const nameOf = (id: string) => (id === "commander" ? "You" : (agentsMap[id]?.callsign ?? "agent"));
+  // Authors are agent ids, or "A·Callsign" for orders known only from the feed.
+  const authorOf = (id: string) => agentsMap[id] ?? Object.values(agentsMap).find((a) => `${a.letter}·${a.callsign}` === id);
+  const nameOf = (id: string) => (id === "commander" ? "You" : (authorOf(id)?.callsign ?? id.split("·").pop() ?? "agent"));
   const lastSteps = entries.findLastIndex((e) => e.kind === "msg" && e.steps.length > 0);
 
   const msg = (e: Extract<ThreadEntry, { kind: "msg" }>, i: number) => {
-    const author = e.from === "agent" ? agent : agentsMap[e.authorId];
+    const author = e.from === "agent" ? agent : authorOf(e.authorId);
     return (
       <div key={e.id} className={`msg${e.from === "you" ? " you" : ""}`}>
-        <span className="avatar">{e.from === "you" ? <Icon name="user" /> : <Mascot accessory={accessoryOf(author)} activity="idle" scale={1.2} />}</span>
+        <span className="avatar" aria-hidden>{e.from === "you" ? <Icon name="user" /> : <Mascot accessory={accessoryOf(author)} activity="idle" scale={1.2} />}</span>
         <div>
           <div className="msg-meta">
             <b>{e.from === "agent" ? agent.callsign : nameOf(e.authorId)}</b>
@@ -138,7 +144,7 @@ function ChatTab({ agent, objective, onSendBack }: { agent: AgentView; objective
               <Rich text={e.text} />
             </div>
           )}
-          {e.steps.length > 0 && <Trace steps={e.steps} initiallyOpen={i === lastSteps && (agent.status === "running" || i >= entries.length - 2)} />}
+          {e.steps.length > 0 && <Trace steps={e.steps} autoOpen={i === lastSteps && (running || i >= entries.length - 2)} />}
         </div>
       </div>
     );
@@ -169,7 +175,7 @@ function ChatTab({ agent, objective, onSendBack }: { agent: AgentView; objective
       )}
       {live && (
         <div className="msg live">
-          <span className="avatar">
+          <span className="avatar" aria-hidden>
             <Mascot accessory={accessoryOf(agent)} activity="idle" scale={1.2} />
           </span>
           <div>

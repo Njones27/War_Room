@@ -466,7 +466,7 @@ function ObjectiveDetail({ o }: { o: ObjectiveView }) {
     const a = author(authorId);
     return (
       <div key={key} className={`msg${authorId === "commander" ? " you" : ""}`}>
-        <span className="avatar">{authorId === "commander" ? <Icon name="user" /> : <Mascot accessory={accessory(a)} activity="idle" scale={1.2} />}</span>
+        <span className="avatar" aria-hidden>{authorId === "commander" ? <Icon name="user" /> : <Mascot accessory={accessory(a)} activity="idle" scale={1.2} />}</span>
         <div>
           <div className="msg-meta">
             <b>{authorId === "commander" ? "You" : (a?.callsign ?? "agent")}</b>

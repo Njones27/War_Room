@@ -40,7 +40,7 @@ describe("buildThread", () => {
   });
 
   it("skips live order echoes and starts a trace when tools come before any reply", () => {
-    const t = buildThread("c", [feed("order", 2, "Commander: Add tests"), feed("tool_use", 3, "Read a.ts", { toolUseId: "u3" })], [order("commander", "c", 1, "Add tests")]);
+    const t = buildThread("c", [feed("order", 2, "Commander: Add tests"), feed("tool_use", 3, "Read a.ts", { toolUseId: "u3" })], [order("commander", "c", 1, "Add tests")], true);
     expect(t).toHaveLength(2);
     const work = t[1];
     expect(work?.kind === "msg" && work.from === "agent" && work.text === "" && work.steps[0]?.state).toBe("run");
@@ -52,6 +52,24 @@ describe("buildThread", () => {
       ["other", null],
       ["agent", "commander"],
     ]);
+  });
+
+  it("shows orders relayed to a teammate, which only the feed records", () => {
+    const t = buildThread("m", [feed("order", 5, "Commander: Check the airspace tests"), feed("order", 6, "A·Overlord: Then report")], []);
+    expect(t.map((e) => e.kind === "msg" && [e.from, e.authorId, e.text])).toEqual([
+      ["you", "commander", "Check the airspace tests"],
+      ["other", "A·Overlord", "Then report"],
+    ]);
+  });
+
+  it("marks steps stopped when a sortie ends without reporting", () => {
+    const run1 = [feed("text", 1, "Working"), feed("tool_use", 2, "$ npm test", { toolUseId: "u5" })];
+    const next = buildThread("c", [...run1, feed("prompt", 3, "next sortie", { runId: "r2" })], [], true);
+    expect(next[0]?.kind === "msg" && next[0].steps[0]?.state).toBe("stopped");
+    const idle = buildThread("c", run1, [], false);
+    expect(idle[0]?.kind === "msg" && idle[0].steps[0]?.state).toBe("stopped");
+    const live = buildThread("c", run1, [], true);
+    expect(live[0]?.kind === "msg" && live[0].steps[0]?.state).toBe("run");
   });
 
   it("closes unfinished steps when the sortie ends", () => {
