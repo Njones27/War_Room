@@ -27,6 +27,7 @@ import { buildAircraft, type Aircraft, type AircraftKind } from "./aircraft";
 import { type Airfield, airfieldFor } from "./airfield";
 import { Fighter } from "./fighter";
 import { clamp, type Flyer, headingOf, reach, restHeight, separate, underside, wrap } from "./flight";
+import type { EffectsLevel } from "../lib/prefs";
 import { Fx } from "./fx";
 import { GUNS, GunStation, Tracers, type GunKind, type GunSpec } from "./guns";
 import { Ordnance } from "./ordnance";
@@ -233,6 +234,10 @@ export class AirWing {
   /** Buildings coming down or down: nobody attacks them any more. */
   private down = new Set<string>();
   private time = 0;
+  /** The effects setting: high keeps the gunship and F-35s working over targets; medium, the gunship at half rate; low and off, only called strikes. */
+  private effects: EffectsLevel = "high";
+  /** Off: aircraft are hidden, nothing flies lifts, and strikes are handled by the map. */
+  private vehicles = true;
   /** World scale: 1 for a ~320-unit map. */
   private k = 1;
   private readonly tmpPos = new Vector3();
@@ -329,7 +334,8 @@ export class AirWing {
           city: () => this.city!,
           heights: () => this.heights!,
           k: () => this.k,
-          targets: () => this.targets,
+          // Attack passes are ambient fire: only at the highest effects setting.
+          targets: () => (this.vehicles && this.effects === "high" ? this.targets : []),
           standing: (path) => !this.down.has(path),
           // Taking off waits for anyone departing or on the way in; committing to final waits for anyone departing or landing.
           runwayBusy: (self, depart) => this.jets.some((j) => j !== self && (depart ? j.runwayUse() !== "none" : ["departing", "landing"].includes(j.runwayUse()))),
@@ -648,6 +654,21 @@ export class AirWing {
     this.strikeCooldown = at - this.time + 8;
   }
 
+  setEffects(level: EffectsLevel): void {
+    this.effects = level;
+    this.fx.setLevel(level);
+  }
+
+  /** Show or hide the air wing. Hidden, any strike already called lands at once. */
+  setVehicles(on: boolean): void {
+    this.vehicles = on;
+    this.fleet.visible = on;
+    this.shadowGroup.visible = on;
+    if (on) return;
+    for (const s of this.shots.splice(0)) s.onHit?.();
+    for (const id of [...this.lifts.keys()]) this.endLift(id);
+  }
+
   /** Buildings agents are working on: the gunship keeps them under fire, and the F-35s attack them. */
   setTargets(targets: StrikeTarget[]): void {
     this.targets = targets;
@@ -662,8 +683,10 @@ export class AirWing {
 
   /** One gunship round: a muzzle flash, a tracer, and `onHit` where it lands. */
   private round(kind: keyof typeof GUN_PORTS, spec: GunSpec, t: StrikeTarget, spread: number, onHit: (at: Vector3) => void): void {
-    const from = GUN_PORTS[kind].clone().applyMatrix4(this.gunship!.ac.root.matrixWorld);
     const to = new Vector3(t.x + (Math.random() - 0.5) * spread, t.height + 0.3, t.z + (Math.random() - 0.5) * spread);
+    // With effects off there's nothing to see in flight: the round lands at once.
+    if (this.effects === "off") return onHit(to);
+    const from = GUN_PORTS[kind].clone().applyMatrix4(this.gunship!.ac.root.matrixWorld);
     this.fx.muzzle(from, spec.flash);
     this.tracers.fire(from, to, spec, () => onHit(to));
   }
@@ -693,12 +716,14 @@ export class AirWing {
         kill();
       });
     }
-    // Otherwise each gun works over whatever the squad is working on, at its own rate.
+    // Otherwise each gun works over whatever the squad is working on, at its own rate
+    // (half rate on medium effects; not at all below that).
     const striking = this.shots.length > 0;
+    const ambient = this.vehicles && (this.effects === "high" || this.effects === "medium");
     for (const st of this.stations) {
       if (!st.gun.busy) st.target = this.targets.length ? this.targets[Math.floor(Math.random() * this.targets.length)]! : null;
       const t = st.target;
-      const shots = st.gun.tick(dt, !striking && t !== null && this.inArc(t));
+      const shots = st.gun.tick(this.effects === "medium" ? dt / 2 : dt, ambient && !striking && t !== null && this.inArc(t));
       for (let i = 0; i < shots; i++) this.round(st.kind, st.gun.spec, t!, st.gun.spec.spread * this.k, (at) => this.fx.impact(at, st.gun.spec.hit, st.kind === "m102"));
     }
     if (this.strikeCooldown > 0) {

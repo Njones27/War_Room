@@ -27,6 +27,7 @@ import {
   Vector4,
   type WebGLRenderer,
 } from "three";
+import type { EffectsLevel } from "../lib/prefs";
 
 function canvasTexture(size: number, draw: (g: CanvasRenderingContext2D, s: number) => void): Texture {
   const c = document.createElement("canvas");
@@ -114,6 +115,8 @@ class Layer {
   private readonly c0: Float32Array;
   private readonly c1: Float32Array;
   private cursor = 0;
+  /** Share of spawns kept (the effects setting thins particles out). */
+  density = 1;
   /** Whether anything was alive last frame (its fade-out still needs uploading). */
   private wasLive = false;
   private readonly geom = new BufferGeometry();
@@ -188,6 +191,7 @@ class Layer {
   }
 
   spawn(o: Spawn): void {
+    if (this.density < 1 && Math.random() > this.density) return;
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % this.n;
     this.pos.set([o.x, o.y, o.z], i * 3);
@@ -300,6 +304,8 @@ export class Fx {
   private time = 0;
   /** World size of a typical building; effects scale with it. */
   private unit = 1;
+  /** Off: no explosions, smoke or sparks. Rubble and scorch marks stay, since they show what's been demolished. */
+  private on = true;
 
   constructor() {
     this.smoke = new Layer(1400, puffTexture(), false);
@@ -312,6 +318,13 @@ export class Fx {
     this.rubbleMesh.count = 0;
     this.rubbleMesh.frustumCulled = false;
     this.group.add(this.decals, this.smoke.points, this.fire.points, this.debris, this.rubbleMesh, this.flash);
+  }
+
+  /** The effects setting: how many particles to draw, or none. */
+  setLevel(level: EffectsLevel): void {
+    this.on = level !== "off";
+    const density = { off: 0, low: 0.35, medium: 0.65, high: 1 }[level];
+    this.fire.density = this.smoke.density = density;
   }
 
   setScale(unit: number): void {
@@ -342,6 +355,7 @@ export class Fx {
 
   /** A detonation. `size` is roughly the fireball radius in world units. */
   explosion(x: number, y: number, z: number, size: number, big: boolean): void {
+    if (!this.on) return;
     const u = size;
     this.flashAt(x, y + u, z, big ? 1 : 0.4);
     this.fire.spawn({ x, y: y + u * 0.4, z, life: 0.16, size: u * 3, grow: u * 3.8, color: new Color(0xfff4d8), alpha: 1 });
@@ -415,6 +429,7 @@ export class Fx {
 
   /** A gun firing: a quick flash at the muzzle. */
   muzzle(p: Vector3, size: number): void {
+    if (!this.on) return;
     const u = size * this.unit;
     this.fire.spawn({ x: p.x, y: p.y, z: p.z, life: 0.07, size: u * 1.6, grow: u * 2.2, color: new Color(0xfff1c4), alpha: 1 });
     this.fire.spawn({ x: p.x, y: p.y, z: p.z, life: 0.16, size: u, grow: u * 0.4, color: FIRE, fade: EMBER, alpha: 0.8 });
@@ -422,6 +437,7 @@ export class Fx {
 
   /** A missile's motor: a glow and a puff of the smoke trail it leaves. */
   trail(p: Vector3): void {
+    if (!this.on) return;
     const u = this.unit;
     this.fire.spawn({ x: p.x, y: p.y, z: p.z, life: 0.08, size: u * 1.4, grow: u * 0.6, color: new Color(0xffe2a0), fade: EMBER, alpha: 0.9 });
     this.smoke.spawn({ x: p.x, y: p.y, z: p.z, vy: u * 0.3, life: 1.6 + Math.random() * 0.8, size: u * 0.9, grow: u * 2.6, color: new Color(0xb8bec2), fade: SMOKE_LIGHT, alpha: 0.55, drag: 1.2 });
@@ -429,6 +445,7 @@ export class Fx {
 
   /** A round hitting: a flash, sparks and a puff, scaled by the shell. `heavy` adds a shockwave. */
   impact(p: Vector3, size: number, heavy: boolean): void {
+    if (!this.on) return;
     const u = size * this.unit;
     if (size >= 2) this.flashAt(p.x, p.y + u, p.z, Math.min(0.6, size * 0.12));
     this.fire.spawn({ x: p.x, y: p.y + u * 0.3, z: p.z, life: 0.12 + size * 0.04, size: u * 1.8, grow: u * 2.6, color: new Color(0xfff0c8), fade: FIRE, alpha: 1 });
@@ -472,6 +489,7 @@ export class Fx {
 
   /** Dust rolling out from the base of a collapsing building. */
   collapseDust(x: number, z: number, w: number, h: number, height: number): void {
+    if (!this.on) return;
     const r = Math.max(w, h) / 2;
     for (let i = 0; i < 34; i++) {
       const a = (i / 34) * Math.PI * 2 + Math.random() * 0.3;
@@ -521,6 +539,7 @@ export class Fx {
 
   /** Fire and a column of smoke rising from a ruin. */
   smolder(x: number, y: number, z: number, r: number, seconds: number): void {
+    if (!this.on) return;
     this.plumes.push({ x, y, z, r, start: this.time, until: this.time + seconds, fireUntil: this.time + seconds * 0.45, next: 0 });
   }
 

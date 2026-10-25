@@ -66,8 +66,8 @@ Press **Ctrl+C** in the terminal where War Room is running. Agents that are mid-
 1. Press **SPACE** (or click **DEPLOY**), pick **General**, and give it a mission, for example *"Get the test suite passing"*.
 2. The General reads the repo, then asks for specialists. Approve them on the cards that appear above the bottom bar.
 3. It splits the mission into objectives and assigns them. Agents walk to the files they're working on.
-4. When an agent needs permission, its marker turns into an orange diamond and a card appears: **APPROVE**, **DENY** or **ALWAYS ALLOW**.
-5. Click an agent, or press **Q** / **E**, to open its intel panel: a live camera, its feed, objectives and files. Type orders at the bottom; a running agent gets them right away.
+4. When an agent needs permission, its marker turns into an orange diamond and a card says what it wants to do: **APPROVE**, **DENY** or **ALWAYS ALLOW** that exact command. With several waiting, **NEXT** steps through them.
+5. Click an agent, or press **Q** / **E**, to open its intel panel: a live camera and a chat with the agent, plus its objectives and files. Type orders at the bottom; a running agent gets them right away.
 6. When work is ready, the General reviews it and asks you to approve the merge. Approve it, and the mission completes.
 
 Want the General to build its own team of Claude Code teammates instead? Tick **TEAM MODE** when you deploy it. See [Team mode](#team-mode).
@@ -82,9 +82,9 @@ Want the General to build its own team of Claude Code teammates instead? Tick **
 │                                                        SUPPLY [BUDGET|USAGE] │
 │                                                               COMMS ticker   │
 │                      the map: your repo as a city           ┌────────────┐   │
-│ AGENT SQUAD                                                 │   intel    │   │
-│  your agents and                                            │   panel    │   │
-│  their teammates            approval cards                  └────────────┘   │
+│ SQUAD                                                       │   intel    │   │
+│  each agent's status                                        │   panel    │   │
+│  and objective              approval card                   └────────────┘   │
 │                       Q [ your agents ] E                   ┌────────────┐   │
 │ PERMISSIONS [AUTO|PLAN|MANUAL]                              │   DEPLOY   │   │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -92,23 +92,31 @@ Want the General to build its own team of Claude Code teammates instead? Tick **
 
 | Where | What it does |
 |---|---|
-| Top left | Zoom buttons and level, the operation (your repo and branch), key hints |
+| Top left | Zoom buttons and level, **⚙ Settings**, the operation (your repo and branch), key hints |
 | Top center | One icon per agent (click to select) and the active mission |
-| Top right | **MANAGE AGENTS** (callsign, chain of command, model, budget, patrol timer, hold), **SUPPLY**, and **COMMS**: a running log of everything that happens |
-| Left | **Agent Squad**: every agent with its status and a usage bar. Teammates sit under their lead. Below it: Claude sessions you started yourself, and other repos where Claude is running |
+| Top right | **MANAGE AGENTS** (callsign, chain of command, model, budget, patrol timer; hold and dismiss in each row's ⋯ menu), **SUPPLY**, and **COMMS**: a running log of everything that happens |
+| Left | **Squad**: every agent with its status and what it's working on (or the request waiting on you). **+** deploys. Teammates sit under their lead. Below it: Claude sessions you started yourself, and other repos where Claude is running |
 | Center | The map. Folders are city blocks and files are buildings (taller means more lines). Hover a building to see its path |
-| Bottom center | Your agents: **Q** / **E** or a click opens one. Approval cards stack above it |
+| Bottom center | Your agents: **Q** / **E** or a click opens one. Approval cards show above it, one at a time |
 | Bottom left | **PERMISSIONS**: the Claude Code mode for every agent |
-| Bottom right | **DEPLOY** a new agent |
+| Bottom right | **DEPLOY** a new agent. On a laptop-height window the open intel panel takes this spot; **SPACE** and the squad's **+** still deploy |
 | Right | The intel panel for the selected agent |
 
-**The intel panel** shows the selected agent's live camera, status, usage and context size, and four tabs:
-- **FEED**: what it's saying and doing, live.
+**The intel panel** shows the selected agent's live camera, status, current objective, usage and context size, and four tabs:
+- **CHAT**: your orders and the agent's replies. The tools it ran fold into a **Trace** under each reply; click a step to see its output. When its objective is ready for review, **MARK DONE** or **SEND BACK** (write what to change).
 - **OBJECTIVES**: its objectives, and a team's shared task list.
 - **FILES**: files it touched. Click one to jump to it on the map.
 - **TERMINAL**: open its real Claude Code session (see [TAKE COMMAND](#take-command)).
 
-Below the tabs are the orders box (Enter sends, Shift+Enter adds a line) and **WAKE**, **HOLD** / **RESUME**, **RECALL** (stop the current run), **TERMINAL** and **DISMISS**. Drag the panel's left or top edge, or its top-left corner, to resize it; double-click an edge to reset. Press **F** for full screen.
+Below the tabs are the message box (Enter sends, Shift+Enter adds a line) and **Wake** (**Stop** while it runs, which ends the current sortie), **Hold** / **Resume** and **Terminal**. **Dismiss** is in the ⋯ menu. Drag the panel's left or top edge, or its top-left corner, to resize it; double-click an edge to reset. Press **F** for full screen.
+
+Panels and dialogs keep 14px text on any screen; only the map frame scales with the window.
+
+**Settings** (⚙ or **P**) are saved in your browser and apply right away:
+- **Quality**: render resolution and shadows (Low, Medium, High). Lower it if the map stutters.
+- **Explosions and effects**: Off, Low, Medium or High. Below Medium, aircraft only fire when a file is deleted; Off also turns off screen shake and the camera glitch.
+- **Vehicles**: on or off. Off hides the aircraft; agents walk everywhere, and a deleted file's building just collapses.
+- **Display**: agent name labels, the comms log, key hints, and screen decorations (vignette, dot grids, ruler).
 
 ### Map legend
 
@@ -143,6 +151,7 @@ Below the tabs are the orders box (Enter sends, Shift+Enter adds a line) and **W
 | **F** | Full-screen intel panel |
 | **Esc** | Leave full screen, then deselect |
 | **O** | Objectives board |
+| **P** | Settings |
 | **Z** | PING: click a building to mark it (yellow rings ripple out and it lights up yellow) and create an objective there |
 | **R** | Reset the camera |
 | **+** / **−** or the mouse wheel | Zoom (also the buttons in the top-left corner) |
@@ -156,7 +165,7 @@ Every agent is your own Claude Code: War Room runs your `claude` CLI with your l
 
 ### Missions and objectives
 
-A mission is the big goal you give the General. Objectives are the tasks under it. Press **O** for the board: create objectives, assign them, move them between columns, comment, and change their model.
+A mission is the big goal you give the General. Objectives are the tasks under it. Press **O** for the board: objectives are grouped by status on the left; pick one to read its brief and every order and report about it, comment or give its assignee orders, and change its status, assignee, priority, model or effort. **+ NEW OBJECTIVE** creates one; with no active mission, **LAUNCH A MISSION** starts one.
 - **Map target** (optional): the folder or file an objective is about. Its pin goes there, and the agent walks there to work. You can also press **Z** and click a building.
 - **Model and effort**: set them per objective. Or tick **GENERAL PICKS MODELS** and the General chooses for each task: cheaper models for simple work, stronger ones for hard problems. An objective you leave on "General picks" waits for its choice before it starts.
 
@@ -190,7 +199,7 @@ Tick **TEAM MODE** when deploying the General (or a custom role that reports to 
 - Their permission requests come to you as cards. The lead's own requests also show in its **TERMINAL** tab, and you can answer them there instead.
 - The team can't stop on a question War Room can't show: `AskUserQuestion` is off, and questions from MCP servers are declined (the comms log says so).
 - Orders for a teammate go through its lead.
-- The **TERMINAL** tab shows the live session. **RECALL** interrupts the lead; **DISMISS** ends the session, and the team with it.
+- The **TERMINAL** tab shows the live session. **Interrupt** stops the lead's current turn; **Dismiss** (in the ⋯ menu) ends the session, and the team with it.
 - Teams use noticeably more tokens and have no budget cap (an interactive session can't take one).
 - It needs `node-pty`. Teammates don't survive a War Room restart; **RESUME** brings back the lead's conversation.
 

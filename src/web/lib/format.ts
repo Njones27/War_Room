@@ -56,6 +56,34 @@ export function statusWord(a: AgentView): string {
   }
 }
 
+export type Tone = "ok" | "warn" | "bad" | "live" | "";
+
+/** A short status for pills and the squad list: "Working", "Needs you", "Holding"… */
+export function statusPill(a: AgentView, needsYou: boolean): { text: string; tone: Tone } {
+  if (needsYou || a.activity === "needs_you") return { text: a.external ? "Waiting" : "Needs you", tone: "warn" };
+  if (a.external) return a.status === "running" ? { text: "Active", tone: "live" } : { text: "Idle", tone: "" };
+  if (a.teamLeadId) return a.status === "running" ? { text: "On task", tone: "live" } : { text: "Standing by", tone: "ok" };
+  if (a.teamMode && a.status === "running") return { text: "Team live", tone: "live" };
+  if (a.teamMode && a.pausedReason === "session_ended") return { text: "Session ended", tone: "" };
+  switch (a.status) {
+    case "running":
+      return { text: "Working", tone: "live" };
+    case "queued":
+      return { text: "Queued", tone: "" };
+    case "paused":
+      return a.pausedReason === "out_of_supply" ? { text: "Out of supply", tone: "bad" } : { text: "Holding", tone: "warn" };
+    case "commanded":
+      return { text: "Your command", tone: "live" };
+    case "terminated":
+      return { text: "Dismissed", tone: "" };
+    default:
+      return { text: "Standing by", tone: "ok" };
+  }
+}
+
+/** "09:34" */
+export const clock = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
 export function supplyFraction(a: AgentView): number {
   if (a.budgetUsd === null || a.budgetUsd <= 0) return 1;
   return Math.max(0, Math.min(1, 1 - a.spentUsd / a.budgetUsd));

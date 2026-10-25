@@ -1,6 +1,9 @@
 @import "@fontsource/rajdhani/latin-500.css";
 @import "@fontsource/rajdhani/latin-600.css";
 @import "@fontsource/rajdhani/latin-700.css";
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
 
 /* Colors sampled from the BF6 deploy-screen reference shots. */
 :root {
@@ -26,6 +29,20 @@
   --line: rgba(216, 222, 226, 0.22);
   --line-strong: rgba(216, 222, 226, 0.45);
   --font: "Rajdhani", system-ui, sans-serif;
+  /* Panels and dialogs: Inter for anything you read or type, on near-black fills. */
+  --ui-font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --p-bg: rgba(12, 17, 21, 0.96);
+  --p-bg-2: #090d10;
+  --p-raise: #131a1f;
+  --p-hover: #18222a;
+  --p-line: rgba(226, 236, 240, 0.09);
+  --p-line-2: rgba(226, 236, 240, 0.17);
+  --p-text: #e8edef;
+  --p-text-2: #cbd3d7;
+  --p-dim: #9aa5ab;
+  --p-faint: #6b777e;
+  --amber: #f3b664;
+  --r: 4px;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }

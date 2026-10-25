@@ -34,6 +34,7 @@ import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 import type { Building, CityModel, Point, Rect } from "../../shared/city";
+import type { EffectsLevel, Quality } from "../lib/prefs";
 import { AirWing, type StrikeTarget } from "./air";
 import { airfieldFor, worldExtent } from "./airfield";
 import { createCamoTexture, createContourTexture } from "./camo";
@@ -170,6 +171,9 @@ export class WarMap {
   private doomed = new Set<string>();
   private shake = 0;
   private shadowFrame = 0;
+  /** How hard landings shake the view (the effects setting). */
+  private shakeScale = 1;
+  private vehicles = true;
   /** Buildings agents are working on, and their tones. */
   private agentTones = new Map<string, ZoneTone>();
   /** The building the Commander last pinged; `held` while its objective is being written. */
@@ -217,6 +221,30 @@ export class WarMap {
     this.resize();
     this.bindInput();
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** Display preferences: render quality, effects level and whether aircraft fly. */
+  setPrefs(p: { quality: Quality; effects: EffectsLevel; vehicles: boolean }): void {
+    // Low: native-ish resolution and no shadows. Medium: capped resolution, smaller shadow map. High: as built.
+    const ratio = { low: 1, medium: Math.min(window.devicePixelRatio, 1.5), high: Math.min(window.devicePixelRatio, 2) }[p.quality];
+    if (this.renderer.getPixelRatio() !== ratio) {
+      this.renderer.setPixelRatio(ratio);
+      this.resize();
+    }
+    const shadows = p.quality !== "low";
+    const size = p.quality === "high" ? 4096 : 2048;
+    if (this.sun.castShadow !== shadows || this.sun.shadow.mapSize.x !== size) {
+      this.sun.castShadow = shadows;
+      this.sun.shadow.mapSize.set(size, size);
+      // A new size needs a new shadow map; three makes one on the next render.
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+    this.shakeScale = { off: 0, low: 0, medium: 0.5, high: 1 }[p.effects];
+    this.air.setEffects(p.effects);
+    this.vehicles = p.vehicles;
+    this.air.setVehicles(p.vehicles);
   }
 
   dispose(): void {
@@ -531,6 +559,16 @@ export class WarMap {
   /** Call the gunship in on these buildings; each comes down when the heavy round lands. */
   strike(paths: string[]): void {
     if (!this.city) return;
+    // No aircraft: the buildings just come down.
+    if (!this.vehicles) {
+      for (const p of paths) {
+        if (this.ruined.has(p) || this.doomed.has(p) || !this.targetOf(p)) continue;
+        this.air.dropTarget(p);
+        this.collapse(p, true);
+      }
+      this.shake = Math.min(1, this.shake + 0.4 * this.shakeScale);
+      return;
+    }
     const targets: StrikeTarget[] = [];
     for (const p of paths) {
       const t = this.ruined.has(p) || this.doomed.has(p) ? null : this.targetOf(p);
@@ -542,7 +580,7 @@ export class WarMap {
     this.air.strike(targets, (t) => {
       this.doomed.delete(t.path);
       this.collapse(t.path, true);
-      this.shake = Math.min(1, this.shake + 0.7);
+      this.shake = Math.min(1, this.shake + 0.7 * this.shakeScale);
     });
   }
 

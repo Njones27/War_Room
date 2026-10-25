@@ -5,13 +5,13 @@ import { cycleAgent, viewAgent } from "./viewAgent";
 
 const typing = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 
-/** BF6-style keys: SPACE deploy, Q/E cycle agents, Z ping, R reset, O objectives, F full-screen intel, 1–9 select. */
+/** BF6-style keys: SPACE deploy, Q/E cycle agents, Z ping, R reset, O objectives, P settings, F full-screen intel, 1–9 select. */
 export function useHotkeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       const s = useStore.getState();
-      if (s.deployOpen || s.manageOpen || s.objectivesOpen || s.terminalFor) return;
+      if (s.deployOpen || s.manageOpen || s.objectivesOpen || s.settingsOpen || s.terminalFor) return;
       const map = mapRef.map;
       switch (e.key) {
         case " ":
@@ -37,6 +37,10 @@ export function useHotkeys(): void {
         case "o":
         case "O":
           s.set({ objectivesOpen: true });
+          return;
+        case "p":
+        case "P":
+          s.set({ settingsOpen: true });
           return;
         case "f":
         case "F":
