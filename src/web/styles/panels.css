@@ -1841,16 +1841,16 @@ button.obj-row:hover {
 .table tbody tr:hover td {
   background: var(--p-hover);
 }
-.agent-cell {
+.table .agent-cell {
   display: flex;
   align-items: center;
   gap: 10px;
 }
-.agent-cell > svg {
+.table .agent-cell > svg {
   color: var(--p-dim);
   flex: none;
 }
-.agent-cell small {
+.table .agent-cell small {
   display: block;
   padding-left: 7px;
   font-size: 12px;
