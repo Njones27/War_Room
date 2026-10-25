@@ -18,6 +18,7 @@ import type {
   StrikeView,
   TheaterView,
 } from "../../shared/protocol";
+import { loadPrefs, savePrefs, type Prefs } from "./prefs";
 
 export type IntelTab = "feed" | "objectives" | "files" | "terminal";
 
@@ -27,14 +28,15 @@ export interface Toast {
   text: string;
 }
 
-/** Intel panel size in rem. A null height fills the space above DEPLOY. */
+/** Intel panel size in px. A null height fills the space above DEPLOY. */
 export interface IntelSize {
   w: number;
   h: number | null;
 }
 
-export const DEFAULT_INTEL_SIZE: IntelSize = { w: 22.5, h: null };
-const INTEL_SIZE_KEY = "warroom.intel-size";
+export const DEFAULT_INTEL_SIZE: IntelSize = { w: 380, h: null };
+// v2: sizes moved from rem to px when panels stopped scaling with the HUD.
+const INTEL_SIZE_KEY = "warroom.intel-size.v2";
 
 function loadIntelSize(): IntelSize {
   try {
@@ -90,6 +92,9 @@ interface State {
   deployOpen: boolean;
   manageOpen: boolean;
   objectivesOpen: boolean;
+  settingsOpen: boolean;
+  /** Display preferences, saved in this browser. */
+  prefs: Prefs;
   intelTab: IntelTab;
   intelSize: IntelSize;
   /** The intel panel fills the screen. */
@@ -102,6 +107,7 @@ interface State {
   apply(msg: ServerMsg): void;
   set(patch: Partial<State>): void;
   select(agentId: string | null): void;
+  setPrefs(patch: Partial<Prefs>): void;
   toast(level: Toast["level"], text: string): void;
 }
 
@@ -169,6 +175,8 @@ export const useStore = create<State>((set, get) => ({
   deployOpen: false,
   manageOpen: false,
   objectivesOpen: false,
+  settingsOpen: false,
+  prefs: loadPrefs(),
   intelTab: "feed",
   intelSize: loadIntelSize(),
   intelFull: false,
@@ -180,6 +188,12 @@ export const useStore = create<State>((set, get) => ({
 
   select: (agentId) =>
     set({ selectedAgentId: agentId, intelTab: agentId && get().selectedAgentId === agentId ? get().intelTab : "feed", ...(agentId ? {} : { intelFull: false }) }),
+
+  setPrefs: (patch) => {
+    const prefs = { ...get().prefs, ...patch };
+    savePrefs(prefs);
+    set({ prefs });
+  },
 
   toast: (level, text) => {
     const id = ++toastSeq;

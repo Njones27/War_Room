@@ -133,6 +133,7 @@ export function MapView() {
   const zoomPct = useStore((s) => s.zoomPct);
   const strikes = useStore((s) => s.strikes);
   const destroyed = useStore((s) => s.destroyed);
+  const prefs = useStore((s) => s.prefs);
   const destroyedSet = useMemo(() => new Set(destroyed), [destroyed]);
 
   const agents = useMemo(() => Object.values(agentsMap).filter((a) => a.status !== "terminated"), [agentsMap]);
@@ -158,6 +159,16 @@ export function MapView() {
       onFrame: (t) => tick(t),
     });
     mapRef.map = map;
+    map.setPrefs(useStore.getState().prefs);
+    const walkToPost = (id: string, m: Mover) => {
+      const post = postsRef.current.get(id);
+      if (post && Math.hypot(post.x - m.x, post.z - m.z) > 0.5) {
+        m.path = [
+          { x: post.x, z: m.z, top: 0.4 },
+          { x: post.x, z: post.z, top: post.top },
+        ];
+      }
+    };
     if (import.meta.env.DEV) (window as unknown as { __warmap: WarMap }).__warmap = map;
     let last = performance.now();
     const tick = (now: number) => {
@@ -166,7 +177,11 @@ export function MapView() {
       const nextMotion: Record<string, Motion> = {};
       for (const [id, m] of movers.current) {
         const ride = m.lift ? map.air.liftState(id) : null;
-        if (m.lift && !ride) m.lift = false;
+        if (m.lift && !ride) {
+          // The lift was called off (aircraft switched off): walk from here.
+          m.lift = false;
+          walkToPost(id, m);
+        }
         if (ride) {
           // The air wing has this agent: walking out to the pad, aboard, or fast-roping down.
           if (Math.abs(ride.x - m.x) > 0.05) m.facing = ride.x < m.x ? -1 : 1;
@@ -179,13 +194,7 @@ export function MapView() {
             map.air.endLift(id);
             m.lift = false;
             // Walk the rest of the way (all of it, if no helicopter came).
-            const post = postsRef.current.get(id);
-            if (post && Math.hypot(post.x - m.x, post.z - m.z) > 0.5) {
-              m.path = [
-                { x: post.x, z: m.z, top: 0.4 },
-                { x: post.x, z: post.z, top: post.top },
-              ];
-            }
+            walkToPost(id, m);
           }
         }
         const goal = m.lift ? undefined : m.path[0];
@@ -235,6 +244,11 @@ export function MapView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Display preferences: render quality, effects level, aircraft on or off.
+  useEffect(() => {
+    mapRef.map?.setPrefs(prefs);
+  }, [prefs]);
 
   const positionStatic = (map: WarMap) => {
     const c = useStore.getState().city;
@@ -348,7 +362,7 @@ export function MapView() {
         else if (!m.lift) m.top = post.top;
         continue;
       }
-      if (air && airlift(city, m, post)) {
+      if (air && useStore.getState().prefs.vehicles && airlift(city, m, post)) {
         m.path = [];
         m.lift = true;
         air.requestLift(id, { x: m.x, z: m.z, top: m.top }, post);

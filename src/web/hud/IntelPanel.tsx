@@ -1,13 +1,17 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AgentView, FeedItem } from "../../shared/protocol";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { AgentView, ObjectiveView } from "../../shared/protocol";
 import { OPEN_OBJECTIVE_STATUSES } from "../../shared/protocol";
 import { act, api } from "../lib/api";
-import { ago, modelTag, pct, statusWord, supplyFraction, tokens, usageShare, usd } from "../lib/format";
+import { ago, clock, modelTag, pct, statusPill, statusWord, supplyFraction, tokens, usageShare, usd } from "../lib/format";
 import { DEFAULT_INTEL_SIZE, pendingApprovals, saveIntelSize, useStore, type IntelTab } from "../lib/store";
 import { CAMO_PALETTE } from "../map/camo";
 import { locate } from "../map/engine";
 import { mapRef } from "../map/mapRef";
 import { Mascot } from "../sprites/Mascot";
+import { Icon, STATUS_LABEL, STATUS_PILL } from "./icons";
+import { MoreMenu, type MenuItem } from "./Menu";
+import { Rich } from "./Rich";
+import { buildThread, type ThreadEntry, type TraceStep } from "./thread";
 
 /** The BF6 camera-switch effect: a burst of blocky pixel noise that clears. */
 function Glitch() {
@@ -41,48 +45,161 @@ function Glitch() {
   return <canvas ref={ref} className="cam-glitch" />;
 }
 
-function Meter({ label, value, text, kind }: { label: string; value: number; text: string; kind?: "ctx" }) {
+function Stat({ label, value, text, ctx, title }: { label: string; value: number; text: string; ctx?: boolean; title?: string }) {
   return (
-    <div className="meter">
+    <div className="stat" title={title}>
       <span>{label}</span>
-      <span className={`track${kind === "ctx" ? " ctx" : ""}`}>
+      <span className={`bar${ctx ? " ctx" : ""}`}>
         <i style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
       </span>
-      <span>{text}</span>
+      <b>{text}</b>
     </div>
   );
 }
 
-function FeedTab({ agent }: { agent: AgentView }) {
-  const feed = useStore((s) => s.feed[agent.id]) ?? [];
+/** A reply's tool calls. Open while it's the latest work, folded once newer messages arrive, unless you've toggled it. */
+function Trace({ steps, autoOpen }: { steps: TraceStep[]; autoOpen: boolean }) {
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? autoOpen;
+  const errors = steps.filter((s) => s.state === "err").length;
+  const running = steps.some((s) => s.state === "run");
+  const stopped = steps.some((s) => s.state === "stopped");
+  const sum = errors ? `${errors} failed` : running ? "running" : stopped ? "stopped" : "all passed";
+  return (
+    <div className={`trace${open ? " open" : ""}`}>
+      <button className="trace-head" aria-expanded={open} onClick={() => setToggled(!open)}>
+        <Icon name={open ? "chevDown" : "chevRight"} />
+        Trace · {steps.length} {steps.length === 1 ? "step" : "steps"}
+        <span className={`sum${errors ? " err" : running || stopped ? "" : " ok"}`}>{sum}</span>
+      </button>
+      {open && (
+        <div className="trace-steps">
+          {steps.map((s) => (
+            <details key={s.id} className="step">
+              <summary>
+                <i className={`dot${s.state === "ok" ? "" : ` ${s.state}`}`} />
+                <code title={s.text}>{s.text}</code>
+                <span className={`res${s.state === "ok" ? "" : ` ${s.state}`}`}>{s.state === "run" ? "running" : s.state === "err" ? "failed" : s.state === "stopped" ? "stopped" : "done"}</span>
+              </summary>
+              {s.result && <pre className={s.state === "err" ? "err" : undefined}>{s.result}</pre>}
+            </details>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Briefing({ text, at }: { text: string; at: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="sys">
+        <span>
+          Sortie started · {clock(at)} ·{" "}
+          <button onClick={() => setOpen(!open)} aria-expanded={open}>
+            {open ? "hide briefing" : "briefing"}
+          </button>
+        </span>
+      </div>
+      {open && <pre className="briefing">{text}</pre>}
+    </>
+  );
+}
+
+function ChatTab({ agent, objective, onSendBack }: { agent: AgentView; objective: ObjectiveView | undefined; onSendBack: () => void }) {
+  const feed = useStore((s) => s.feed[agent.id]);
+  const orders = useStore((s) => s.orders);
   const live = useStore((s) => s.live[agent.id]) ?? "";
+  const agentsMap = useStore((s) => s.agents);
+  const roles = useStore((s) => s.roles);
+  const running = agent.status === "running";
+  const entries = useMemo(() => buildThread(agent.id, feed ?? [], orders, running), [agent.id, feed, orders, running]);
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [feed.length, live]);
-  const render = (f: FeedItem) => {
-    const time = new Date(f.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }, [entries, live]);
+
+  const accessoryOf = (a: AgentView | undefined) => (!a || a.external ? "none" : a.teamLeadId ? "helmet" : (roles.find((r) => r.id === a.role)?.accessory ?? "beret"));
+  // Authors are agent ids, or "A·Callsign" for orders known only from the feed.
+  const authorOf = (id: string) => agentsMap[id] ?? Object.values(agentsMap).find((a) => `${a.letter}·${a.callsign}` === id);
+  const nameOf = (id: string) => (id === "commander" ? "You" : (authorOf(id)?.callsign ?? id.split("·").pop() ?? "agent"));
+  const lastSteps = entries.findLastIndex((e) => e.kind === "msg" && e.steps.length > 0);
+
+  const msg = (e: Extract<ThreadEntry, { kind: "msg" }>, i: number) => {
+    const author = e.from === "agent" ? agent : authorOf(e.authorId);
     return (
-      <div key={f.id} className={`feed-item k-${f.kind}${f.isError ? " err" : ""}`}>
-        {f.kind !== "tool_result" && f.kind !== "tool_use" && <span className="t">{time}</span>}
-        {f.text}
+      <div key={e.id} className={`msg${e.from === "you" ? " you" : ""}`}>
+        <span className="avatar" aria-hidden>{e.from === "you" ? <Icon name="user" /> : <Mascot accessory={accessoryOf(author)} activity="idle" scale={1.2} />}</span>
+        <div>
+          <div className="msg-meta">
+            <b>{e.from === "agent" ? agent.callsign : nameOf(e.authorId)}</b>
+            {e.to && <span>to {nameOf(e.to)}</span>}
+            <span>{clock(e.at)}</span>
+          </div>
+          {e.text && (
+            <div className="msg-text">
+              <Rich text={e.text} />
+            </div>
+          )}
+          {e.steps.length > 0 && <Trace steps={e.steps} autoOpen={i === lastSteps && (running || i >= entries.length - 2)} />}
+        </div>
       </div>
     );
   };
+
   return (
     <div
       ref={ref}
-      className="feed scroll"
+      className="thread scroll"
       onScroll={(e) => {
         const el = e.currentTarget;
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
       }}
     >
-      {feed.length === 0 && !live && <div className="empty">No radio traffic yet. Activity from this agent's sorties streams here.</div>}
-      {feed.map(render)}
-      {live && <div className="feed-live">{live}</div>}
+      {entries.length === 0 && !live && <div className="empty">Nothing yet. Send {agent.callsign} orders below, or wait for its first sortie.</div>}
+      {entries.map((e, i) =>
+        e.kind === "msg" ? (
+          msg(e, i)
+        ) : e.kind === "briefing" ? (
+          <Briefing key={e.id} text={e.text} at={e.at} />
+        ) : (
+          <div key={e.id} className={`sys${e.err ? " err" : ""}`}>
+            <span>
+              {e.text} · {clock(e.at)}
+            </span>
+          </div>
+        ),
+      )}
+      {live && (
+        <div className="msg live">
+          <span className="avatar" aria-hidden>
+            <Mascot accessory={accessoryOf(agent)} activity="idle" scale={1.2} />
+          </span>
+          <div>
+            <div className="msg-meta">
+              <b>{agent.callsign}</b>
+              <span>typing</span>
+            </div>
+            <div className="msg-text">{live}</div>
+          </div>
+        </div>
+      )}
+      {!agent.external && objective?.status === "in_review" && agent.status !== "running" && (
+        <div className="review">
+          <span className="grow">
+            <b>#{objective.number}</b> is ready for your review.
+          </span>
+          <button className="btn sm primary" onClick={() => void act(() => api.updateObjective(objective.id, { status: "done" }), "Objective done")}>
+            Mark done
+          </button>
+          <button className="btn sm ghost" title={`Write what to change; your message wakes ${agent.callsign}`} onClick={onSendBack}>
+            Send back
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -92,16 +209,18 @@ function TeamTasks({ agent }: { agent: AgentView }) {
   const order = { in_progress: 0, pending: 1, completed: 2 };
   return (
     <>
-      <div className="obj-section">TEAM TASKS · {agent.teamTasks.filter((t) => t.status === "completed").length}/{agent.teamTasks.length} DONE</div>
+      <div className="label section">
+        Team tasks · {agent.teamTasks.filter((t) => t.status === "completed").length}/{agent.teamTasks.length} done
+      </div>
       {[...agent.teamTasks]
         .sort((a, b) => order[a.status] - order[b.status])
         .map((t) => (
-          <div key={t.id} className="obj-card">
-            <div className="row1">
-              <span>{t.subject}</span>
-              <span className={`status-chip st-${t.status === "completed" ? "done" : t.status === "in_progress" ? "in_progress" : "todo"}`}>{t.status.replace("_", " ").toUpperCase()}</span>
+          <div key={t.id} className="card">
+            <div className="card-title">
+              <span className="t">{t.subject}</span>
+              <span className={`pill sm ${t.status === "completed" ? "ok" : t.status === "in_progress" ? "warn" : ""}`}>{t.status === "completed" ? "Done" : t.status === "in_progress" ? "In progress" : "Pending"}</span>
             </div>
-            {t.owner && <div className="row2">◆ {t.owner}</div>}
+            {t.owner && <div className="card-meta">{t.owner}</div>}
           </div>
         ))}
     </>
@@ -115,7 +234,7 @@ function ObjectivesTab({ agent }: { agent: AgentView }) {
   const [target, setTarget] = useState("");
   if (agent.teamLeadId) {
     return (
-      <div className="obj-list scroll">
+      <div className="tab-list scroll">
         <TeamTasks agent={agent} />
         {agent.teamTasks.length === 0 && <div className="empty">No team tasks claimed. Teammates take work from their lead's shared task list.</div>}
       </div>
@@ -127,7 +246,7 @@ function ObjectivesTab({ agent }: { agent: AgentView }) {
     .slice(0, 20);
   const lastReport = (id: string) => [...orders].reverse().find((o) => o.objectiveId === id && o.author === agent.id);
   return (
-    <div className="obj-list scroll">
+    <div className="tab-list scroll">
       {!agent.external && (
         <form
           className="field"
@@ -140,7 +259,7 @@ function ObjectivesTab({ agent }: { agent: AgentView }) {
             });
           }}
         >
-          <input placeholder="New objective for this agent…" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <input placeholder={`New objective for ${agent.callsign}…`} value={title} onChange={(e) => setTitle(e.target.value)} />
           {title && <input placeholder="Target path (optional), e.g. src/auth" value={target} onChange={(e) => setTarget(e.target.value)} />}
         </form>
       )}
@@ -148,25 +267,37 @@ function ObjectivesTab({ agent }: { agent: AgentView }) {
       {mine.map((o) => {
         const report = lastReport(o.id);
         return (
-          <div key={o.id} className="obj-card">
-            <div className="row1">
-              <span>
-                #{o.number} {o.title}
-              </span>
-              <span className={`status-chip st-${o.status}`}>{o.status.replace("_", " ").toUpperCase()}</span>
+          <div key={o.id} className="card">
+            <div className="card-title">
+              <span className="mono">#{o.number}</span>
+              <span className="t">{o.title}</span>
+              <span className={`pill sm ${STATUS_PILL[o.status]}`}>{STATUS_LABEL[o.status]}</span>
             </div>
-            {o.targetPaths.length > 0 && <div className="row2">⌖ {o.targetPaths.join(", ")}</div>}
-            {modelTag(o) && <div className={`row2 model-tag${o.modelPending ? " pending" : ""}`}>◆ {modelTag(o)}</div>}
-            {report && <div className="row2">“{report.body.slice(0, 220)}{report.body.length > 220 ? "…" : ""}”</div>}
+            {(o.targetPaths.length > 0 || modelTag(o)) && (
+              <div className="card-meta">
+                {o.targetPaths.map((p) => (
+                  <span key={p} className="chip path">
+                    {p}
+                  </span>
+                ))}
+                {modelTag(o) && <span className={`model-tag${o.modelPending ? " pending" : ""}`}>{modelTag(o)}</span>}
+              </div>
+            )}
+            {report && (
+              <div className="card-quote">
+                {report.body.slice(0, 220)}
+                {report.body.length > 220 ? "…" : ""}
+              </div>
+            )}
             {!agent.external && OPEN_OBJECTIVE_STATUSES.includes(o.status) && (
               <div className="actions">
                 {o.status === "in_review" && (
-                  <button className="btn cyan" onClick={() => void act(() => api.updateObjective(o.id, { status: "done" }))}>
-                    MARK DONE
+                  <button className="btn sm primary" onClick={() => void act(() => api.updateObjective(o.id, { status: "done" }))}>
+                    Mark done
                   </button>
                 )}
-                <button className="btn" onClick={() => void act(() => api.updateObjective(o.id, { status: "cancelled" }))}>
-                  CANCEL
+                <button className="btn sm ghost" onClick={() => void act(() => api.updateObjective(o.id, { status: "cancelled" }))}>
+                  Cancel
                 </button>
               </div>
             )}
@@ -196,12 +327,13 @@ function FilesTab({ agent }: { agent: AgentView }) {
     };
   }, [agent.id, agent.external]);
   return (
-    <div className="files-list scroll">
+    <div className="tab-list scroll" style={{ gap: 0 }}>
       {files.length === 0 && <div className="empty">{agent.external ? "File history isn't tracked for watch-only units." : "No files touched yet."}</div>}
       {files.map((f) => (
         <button
           key={f.path}
           className="file-row"
+          title="Show on the map"
           onClick={() => {
             const at = city ? locate(city, f.path) : null;
             if (at) mapRef.map?.focus(at.x, at.z);
@@ -228,9 +360,9 @@ function TerminalTab({ agent }: { agent: AgentView }) {
   }, [agent.id, agent.external, agent.status]);
   if (agent.external) {
     return (
-      <div className="term-intro">
-        This is a Claude Code session you started yourself. War Room only watches it; open it from its own terminal.
-        <code>{agent.workspace.path}</code>
+      <div className="term-intro scroll">
+        <div>This is a Claude Code session you started yourself. War Room only watches it; open it from its own terminal.</div>
+        <code className="code">{agent.workspace.path}</code>
       </div>
     );
   }
@@ -238,61 +370,68 @@ function TerminalTab({ agent }: { agent: AgentView }) {
     const leadId = agent.teamLeadId ?? agent.id;
     const live = agent.teamLeadId ? true : agent.status === "running";
     return (
-      <div className="term-intro">
+      <div className="term-intro scroll">
         <div>
           {agent.teamLeadId
-            ? "Teammates run inside their lead's Claude Code session. Open it to watch the whole team, or pick this teammate in its agent panel to talk to it directly."
-            : "This team lead is a live Claude Code session; its teammates run inside it. Type to it directly, answer prompts, or pick a teammate in the agent panel."}
+            ? "Teammates run inside their lead's Claude Code session. Open it to watch the whole team, or message this teammate from the Chat tab."
+            : "This team lead is a live Claude Code session; its teammates run inside it. Type to it directly, answer prompts, or pick a teammate in the squad list."}
         </div>
         <div className="actions">
           {live ? (
             <button className="btn primary" disabled={settings?.demo} onClick={() => set({ terminalFor: leadId })}>
-              {agent.teamLeadId ? "OPEN LEAD'S TERMINAL" : "OPEN TEAM TERMINAL"}
+              {agent.teamLeadId ? "Open lead's terminal" : "Open team terminal"}
             </button>
           ) : (
             <button className="btn primary" onClick={() => void act(() => api.resume(agent.id), "Bringing the team lead back")}>
-              RESUME SESSION
+              Resume session
             </button>
           )}
         </div>
         {settings?.demo && <div>Demo teams are simulated, so there's no terminal.</div>}
-        {!live && <div>The session ended. RESUME brings the lead back with its conversation; teammates don't survive a restart.</div>}
+        {!live && <div>The session ended. Resume brings the lead back with its conversation; teammates don't survive a restart.</div>}
       </div>
     );
   }
   return (
-    <div className="term-intro">
-      <div>TAKE COMMAND opens this agent's real Claude Code session (the interactive TUI) right here. War Room holds the agent's sorties until you release it.</div>
+    <div className="term-intro scroll">
+      <div>Take command opens this agent's real Claude Code session (the interactive TUI) right here. War Room holds the agent's sorties until you release it.</div>
       <div className="actions">
         <button
           className="btn primary"
           disabled={!settings?.takeCommandAvailable || agent.status === "running"}
           onClick={() => set({ terminalFor: agent.id })}
-          title={agent.status === "running" ? "Wait for the sortie to end, or recall it" : undefined}
+          title={agent.status === "running" ? "Wait for the sortie to end, or stop it" : undefined}
         >
-          {agent.status === "commanded" ? "OPEN TERMINAL" : "TAKE COMMAND"}
+          {agent.status === "commanded" ? "Open terminal" : "Take command"}
         </button>
       </div>
       {!settings?.takeCommandAvailable && <div>{settings?.demo ? "Unavailable in demo mode." : "Needs the optional node-pty dependency (npm install)."}</div>}
       {session?.command && (
         <>
           <div>Or continue it in your own terminal:</div>
-          <code>{session.command}</code>
+          <code className="code">{session.command}</code>
         </>
       )}
     </div>
   );
 }
 
-function OrdersBox({ agent }: { agent: AgentView }) {
+function Composer({ agent, inputRef }: { agent: AgentView; inputRef: React.RefObject<HTMLTextAreaElement | null> }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const set = useStore((s) => s.set);
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [text, inputRef]);
   if (agent.external) return null;
   const mate = agent.teamLeadId !== null;
   const team = agent.teamMode;
-  const live = team && agent.status === "running";
-  const sentMsg = mate ? "Orders relayed through the lead" : live ? "Orders typed into the team session" : agent.status === "running" ? "Orders delivered live" : "Orders queued; agent is waking";
+  const running = agent.status === "running";
+  const paused = agent.status === "paused";
+  const sentMsg = mate ? "Orders relayed through the lead" : team && running ? "Orders typed into the team session" : running ? "Orders delivered live" : "Orders queued; agent is waking";
   const send = async () => {
     if (!text.trim() || busy) return;
     setBusy(true);
@@ -300,13 +439,23 @@ function OrdersBox({ agent }: { agent: AgentView }) {
     setBusy(false);
     if (ok) setText("");
   };
-  const paused = agent.status === "paused";
+  const dismiss: MenuItem = {
+    label: `Dismiss ${agent.callsign}…`,
+    icon: "x",
+    danger: true,
+    onClick: () => {
+      const wt = agent.workspace.kind === "worktree";
+      if (!window.confirm(`Dismiss ${agent.letter} · ${agent.callsign}? Open objectives go back to the board.${wt ? "\n\nIts worktree is removed only if it has no uncommitted changes; the branch is kept." : ""}`)) return;
+      void act(() => api.dismiss(agent.id, wt), "Agent dismissed");
+    },
+  };
   return (
-    <div className="orders-box">
-      <div className="orders-input">
+    <div className="composer">
+      <div className="composer-input">
         <textarea
-          rows={2}
-          placeholder={mate ? `Orders for ${agent.letter} · ${agent.callsign} (relayed by its lead)…` : `Orders for ${agent.letter} · ${agent.callsign}…`}
+          ref={inputRef}
+          rows={1}
+          placeholder={mate ? `Message ${agent.callsign} (relayed by its lead)…` : `Message ${agent.callsign}…`}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -317,47 +466,48 @@ function OrdersBox({ agent }: { agent: AgentView }) {
             e.stopPropagation();
           }}
         />
-        <button disabled={!text.trim() || busy} onClick={() => void send()}>
-          SEND ⏎
+        <button className="send" aria-label="Send" title="Send (Enter)" disabled={!text.trim() || busy} onClick={() => void send()}>
+          <Icon name="send" />
         </button>
       </div>
-      <div className="actions">
+      <div className="composer-bar">
         {mate ? null : team ? (
-          !live && (
-            <button className="btn" onClick={() => void act(() => api.resume(agent.id), "Bringing the team lead back")}>
-              RESUME
+          running ? (
+            <button className="tbtn" title="Interrupt the lead (its teammates keep working)" onClick={() => void act(() => api.recall(agent.id), "Lead interrupted")}>
+              <Icon name="stop" />
+              Interrupt
+            </button>
+          ) : (
+            <button className="tbtn" onClick={() => void act(() => api.resume(agent.id), "Bringing the team lead back")}>
+              <Icon name="resume" />
+              Resume
             </button>
           )
         ) : (
           <>
-            <button className="btn" disabled={agent.status === "running" || paused} onClick={() => void act(() => api.wake(agent.id), "Waking")}>
-              WAKE
-            </button>
-            <button className="btn" onClick={() => void act(() => (paused || agent.pausedReason ? api.resume(agent.id) : api.pause(agent.id)))}>
-              {paused || agent.pausedReason ? "RESUME" : "HOLD"}
+            {running ? (
+              <button className="tbtn" title="Recall: end this sortie now" onClick={() => void act(() => api.recall(agent.id), "Recalled")}>
+                <Icon name="stop" />
+                Stop
+              </button>
+            ) : (
+              <button className="tbtn" disabled={paused} title="Start a sortie now" onClick={() => void act(() => api.wake(agent.id), "Waking")}>
+                <Icon name="play" />
+                Wake
+              </button>
+            )}
+            <button className="tbtn" onClick={() => void act(() => (paused || agent.pausedReason ? api.resume(agent.id) : api.pause(agent.id)))}>
+              <Icon name={paused || agent.pausedReason ? "resume" : "pause"} />
+              {paused || agent.pausedReason ? "Resume" : "Hold"}
             </button>
           </>
         )}
-        {!mate && (
-          <button className="btn" disabled={agent.status !== "running"} title={team ? "Interrupt the lead (its teammates keep working)" : undefined} onClick={() => void act(() => api.recall(agent.id), team ? "Lead interrupted" : "Recalled")}>
-            RECALL
-          </button>
-        )}
-        <button className="btn cyan" onClick={() => set({ intelTab: "terminal" })}>
-          TERMINAL
+        <button className="tbtn" onClick={() => set({ intelTab: "terminal" })}>
+          <Icon name="terminal" />
+          Terminal
         </button>
-        {!mate && (
-        <button
-          className="btn danger"
-          onClick={() => {
-            const wt = agent.workspace.kind === "worktree";
-            if (!window.confirm(`Dismiss ${agent.letter} · ${agent.callsign}? Open objectives go back to the board.${wt ? "\n\nIts worktree is removed only if it has no uncommitted changes; the branch is kept." : ""}`)) return;
-            void act(() => api.dismiss(agent.id, wt), "Agent dismissed");
-          }}
-        >
-          DISMISS
-        </button>
-        )}
+        <span className="grow" />
+        {!mate && <MoreMenu items={[dismiss]} label={`More actions for ${agent.callsign}`} />}
       </div>
     </div>
   );
@@ -365,21 +515,21 @@ function OrdersBox({ agent }: { agent: AgentView }) {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Drag the panel's left edge, top edge or top-left corner to resize it (sizes in rem). */
+/** Drag the panel's left edge, top edge or top-left corner to resize it (sizes in px). */
 function startResize(e: React.PointerEvent, panel: HTMLElement | null, axis: "w" | "h" | "wh"): void {
   if (!panel || e.button !== 0) return;
   e.preventDefault();
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   const rect = panel.getBoundingClientRect();
-  const start = { x: e.clientX, y: e.clientY, w: rect.width / rem, h: rect.height / rem };
-  // Keep the roster on the left and the DEPLOY button below in view.
-  const maxW = Math.max(DEFAULT_INTEL_SIZE.w, window.innerWidth / rem - 32);
-  const maxH = Math.max(20, window.innerHeight / rem - 15.3);
+  const start = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
+  // Keep the squad list on the left and the DEPLOY button below in view.
+  const maxW = Math.max(DEFAULT_INTEL_SIZE.w, window.innerWidth - 32 * rem);
+  const maxH = Math.max(320, window.innerHeight - 15.3 * rem);
   const move = (ev: PointerEvent) => {
     const { intelSize, set } = useStore.getState();
-    const w = axis === "h" ? intelSize.w : clamp(start.w + (start.x - ev.clientX) / rem, 20, maxW);
-    const h = axis === "w" ? intelSize.h : clamp(start.h + (start.y - ev.clientY) / rem, 20, maxH);
-    set({ intelSize: { w: Math.round(w * 10) / 10, h: h === null ? null : Math.round(h * 10) / 10 } });
+    const w = axis === "h" ? intelSize.w : clamp(start.w + (start.x - ev.clientX), 320, maxW);
+    const h = axis === "w" ? intelSize.h : clamp(start.h + (start.y - ev.clientY), 320, maxH);
+    set({ intelSize: { w: Math.round(w), h: h === null ? null : Math.round(h) } });
   };
   const up = () => {
     window.removeEventListener("pointermove", move);
@@ -391,13 +541,6 @@ function startResize(e: React.PointerEvent, panel: HTMLElement | null, axis: "w"
   window.addEventListener("pointerup", up);
   document.body.dataset.resize = axis;
 }
-
-const TABS: { id: IntelTab; label: string }[] = [
-  { id: "feed", label: "FEED" },
-  { id: "objectives", label: "OBJECTIVES" },
-  { id: "files", label: "FILES" },
-  { id: "terminal", label: "TERMINAL" },
-];
 
 export function IntelPanel() {
   const id = useStore((s) => s.selectedAgentId);
@@ -414,7 +557,9 @@ export function IntelPanel() {
   const select = useStore((s) => s.select);
   const camRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const needs = useMemo(() => pendingApprovals(approvals).some((a) => a.agentId === id), [approvals, id]);
+  const glitch = useStore((s) => s.prefs.effects !== "off");
 
   useEffect(() => {
     mapRef.camBox = camRef.current;
@@ -429,6 +574,9 @@ export function IntelPanel() {
   const objective =
     (agent.objectiveId ? objectives[agent.objectiveId] : undefined) ??
     Object.values(objectives).find((o) => o.assigneeId === agent.id && OPEN_OBJECTIVE_STATUSES.includes(o.status));
+  const openCount = Object.values(objectives).filter((o) => o.assigneeId === agent.id && OPEN_OBJECTIVE_STATUSES.includes(o.status)).length;
+  const pill = statusPill(agent, needs);
+  const squad = Object.values(agentsMap);
   const resetSize = () => {
     set({ intelSize: DEFAULT_INTEL_SIZE });
     saveIntelSize(DEFAULT_INTEL_SIZE);
@@ -436,12 +584,28 @@ export function IntelPanel() {
   const grip = (axis: "w" | "h" | "wh") => (
     <div className={`intel-grip ${axis}`} onPointerDown={(e) => startResize(e, panelRef.current, axis)} onDoubleClick={resetSize} title="Drag to resize · double-click to reset" aria-hidden />
   );
+  const sendBack = () => {
+    set({ intelTab: "feed" });
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const tabs: { id: IntelTab; label: string; count?: number }[] = [
+    { id: "feed", label: "Chat" },
+    { id: "objectives", label: agent.teamLeadId ? "Tasks" : "Objectives", count: agent.teamLeadId ? undefined : openCount || undefined },
+    { id: "files", label: "Files" },
+    { id: "terminal", label: "Terminal" },
+  ];
+  let body: ReactNode = null;
+  if (tab === "feed") body = <ChatTab agent={agent} objective={objective} onSendBack={sendBack} />;
+  else if (tab === "objectives") body = <ObjectivesTab agent={agent} />;
+  else if (tab === "files") body = <FilesTab agent={agent} />;
+  else body = <TerminalTab agent={agent} />;
+
   return (
     <section
       ref={panelRef}
-      className={`intel tick-frame${full ? " full" : ""}`}
+      className={`intel${full ? " full" : ""}`}
       aria-label={`Intel: ${agent.callsign}`}
-      style={full ? undefined : { width: `${size.w}rem`, ...(size.h !== null ? { height: `${size.h}rem` } : {}) }}
+      style={full ? undefined : { width: `${size.w}px`, ...(size.h !== null ? { height: `${size.h}px` } : {}) }}
     >
       {!full && (
         <>
@@ -451,22 +615,22 @@ export function IntelPanel() {
         </>
       )}
       <div className="intel-head">
-        <button className="intel-full-btn" aria-label={full ? "Exit full screen" : "Full screen"} title={full ? "Exit full screen (F or Esc)" : "Full screen (F)"} onClick={() => set({ intelFull: !full })}>
-          {full ? "⤡" : "⤢"}
+        <button className="head-btn full" aria-label={full ? "Exit full screen" : "Full screen"} title={full ? "Exit full screen (F or Esc)" : "Full screen (F)"} onClick={() => set({ intelFull: !full })}>
+          <Icon name={full ? "shrink" : "expand"} />
         </button>
         {agent.external
-          ? `UNIT ${agent.letter} · WATCH-ONLY`
+          ? `Unit ${agent.letter} · Watch-only`
           : agent.teamLeadId
-            ? `TEAMMATE ${agent.letter} · ${lead ? `${lead.callsign.toUpperCase()}'S TEAM` : "TEAM"}`
+            ? `Teammate ${agent.letter} · ${lead ? `${lead.callsign}'s team` : "Team"}`
             : agent.teamMode
-              ? `AGENT ${agent.letter} · TEAM LEAD`
-              : `AGENT ${agent.letter} · ${role?.name ?? agent.role}`}
-        <button className="intel-close" aria-label="Close" onClick={() => select(null)}>
-          ✕
+              ? `Agent ${agent.letter} · Team lead`
+              : `Agent ${agent.letter} · ${role?.name ?? agent.role}`}
+        <button className="head-btn close" aria-label="Close" onClick={() => select(null)}>
+          <Icon name="x" />
         </button>
       </div>
       <div className="cam" ref={camRef}>
-        <Glitch key={agent.id} />
+        {glitch && <Glitch key={agent.id} />}
         <div className="cam-brackets" />
         <div className="cam-cross" />
         <div className="cam-mascot">
@@ -477,49 +641,49 @@ export function IntelPanel() {
           {agent.activity !== "idle" ? agent.activity.replace("_", " ").toUpperCase() : ""}
         </div>
       </div>
-      <div className="intel-meta">
-        <div className="intel-name">
-          <span>
-            {agent.letter} · {agent.callsign}
+      <div className="intel-id">
+        <div className="id-row">
+          <div className="who">
+            <b>{agent.callsign}</b>
+            <span>{agent.external ? (agent.sessionName ?? "Claude session") : agent.teamLeadId ? `Teammate${agent.model ? ` · ${agent.model}` : ""}` : (role?.title ?? agent.role)}</span>
+          </div>
+          <span className={`pill ${pill.tone}`}>
+            <i />
+            {pill.text}
           </span>
-          <small>{agent.external ? (agent.sessionName ?? "Claude session") : agent.teamLeadId ? `Teammate${agent.sessionName ? ` · ${agent.sessionName}` : ""}${agent.model ? ` · ${agent.model}` : ""}` : (role?.title ?? agent.role)}</small>
         </div>
-        <div className="intel-detail" title={agent.activityDetail ?? ""}>
-          {objective ? `#${objective.number} ${objective.title}` : (agent.activityDetail ?? "No objective")}
-        </div>
+        {objective ? (
+          <button className="obj-row" title={objective.title} onClick={() => set({ intelTab: "objectives" })}>
+            <span className="mono">#{objective.number}</span>
+            <span className="t">{objective.title}</span>
+            <span className={`pill sm ${STATUS_PILL[objective.status]}`}>{STATUS_LABEL[objective.status]}</span>
+          </button>
+        ) : (
+          <div className="obj-row none" title={agent.activityDetail ?? ""}>
+            <span className="t">{agent.activityDetail ?? "No objective"}</span>
+          </div>
+        )}
         {!agent.external && (
-          <>
+          <div className="stats">
             {usage || agent.teamMode || agent.teamLeadId ? (
-              <Meter
-                label="USAGE"
-                value={usageShare(agent, Object.values(agentsMap))}
-                text={`${tokens(agent.tokensUsed)} tok · ${pct(usageShare(agent, Object.values(agentsMap)))} of squad`}
-              />
+              <Stat label="Usage" value={usageShare(agent, squad)} text={`${tokens(agent.tokensUsed)} · ${pct(usageShare(agent, squad))}`} title={`${tokens(agent.tokensUsed)} tokens, ${pct(usageShare(agent, squad))} of the squad's usage`} />
             ) : (
-              <Meter
-                label="SUPPLY"
-                value={supplyFraction(agent)}
-                text={agent.budgetUsd === null ? `${usd(agent.spentUsd)} · no cap` : `${usd(agent.spentUsd)} / ${usd(agent.budgetUsd)}`}
-              />
+              <Stat label="Supply" value={supplyFraction(agent)} text={agent.budgetUsd === null ? `${usd(agent.spentUsd)} · no cap` : `${usd(agent.spentUsd)} / ${usd(agent.budgetUsd)}`} />
             )}
-            <Meter label="CONTEXT" kind="ctx" value={agent.contextTokens / 1_000_000} text={tokens(agent.contextTokens)} />
-          </>
+            <Stat label="Context" ctx value={agent.contextTokens / 1_000_000} text={tokens(agent.contextTokens)} />
+          </div>
         )}
       </div>
       <div className="tabs" role="tablist">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab${tab === t.id ? " active" : ""}`} onClick={() => set({ intelTab: t.id })}>
             {t.label}
+            {t.count !== undefined && <i>{t.count}</i>}
           </button>
         ))}
       </div>
-      <div className="tab-body">
-        {tab === "feed" && <FeedTab agent={agent} />}
-        {tab === "objectives" && <ObjectivesTab agent={agent} />}
-        {tab === "files" && <FilesTab agent={agent} />}
-        {tab === "terminal" && <TerminalTab agent={agent} />}
-      </div>
-      <OrdersBox agent={agent} />
+      <div className="tab-body">{body}</div>
+      <Composer agent={agent} inputRef={inputRef} />
     </section>
   );
 }
