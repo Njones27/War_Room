@@ -19,6 +19,11 @@ export interface RunContext {
   disallowedTools: string[];
   sessionName: string;
   env: Record<string, string>;
+  /**
+   * A scheduled satellite run nobody is watching: no War Room MCP server and
+   * no permission prompts, so tools outside the allow list are denied.
+   */
+  unattended?: boolean;
 }
 
 export interface RunExit {

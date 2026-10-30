@@ -256,6 +256,51 @@ export interface StrikeView {
   at: number;
 }
 
+/**
+ * A scheduled task, shown in orbit as a satellite. "warroom" satellites are
+ * scheduled and run by War Room; "claude_app" ones are the Claude desktop
+ * app's Scheduled tasks, shown read-only.
+ */
+export interface SatelliteView {
+  id: string;
+  source: "warroom" | "claude_app";
+  name: string;
+  prompt: string;
+  /** Role that runs it (its instructions and tool limits). */
+  role: string | null;
+  model: string | null;
+  effort: string | null;
+  /** 5-field cron in local time; null with fireAt set is a one-off, both null runs only by hand. */
+  cron: string | null;
+  fireAt: number | null;
+  /** Plain-words schedule, e.g. "Daily at 08:00". */
+  scheduleText: string;
+  enabled: boolean;
+  running: boolean;
+  /** What a live run is doing right now. */
+  activity: string | null;
+  nextRunAt: number | null;
+  lastRunAt: number | null;
+  lastStatus: RunStatus | null;
+  /** Claude app tasks: the SKILL.md that defines it. */
+  path: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SatelliteRunView {
+  id: string;
+  satelliteId: string;
+  trigger: "schedule" | "manual";
+  status: RunStatus;
+  startedAt: number;
+  endedAt: number | null;
+  /** The run's closing report. */
+  summary: string | null;
+  error: string | null;
+  costUsd: number;
+}
+
 export interface FrontView {
   cwd: string;
   name: string;
@@ -303,6 +348,8 @@ export interface Snapshot {
   commsCheck: CommsCheck;
   fronts: FrontView[];
   settings: Settings;
+  satellites: SatelliteView[];
+  satelliteRuns: SatelliteRunView[];
 }
 
 /** Server → client WebSocket messages. */
@@ -323,6 +370,9 @@ export type ServerMsg =
   | { t: "comms_check"; check: CommsCheck }
   | { t: "fronts"; fronts: FrontView[] }
   | { t: "settings"; settings: Settings }
+  | { t: "satellite"; satellite: SatelliteView }
+  | { t: "satellite_removed"; id: string }
+  | { t: "satellite_run"; run: SatelliteRunView }
   | { t: "term"; agentId: string; data: string }
   | { t: "term_exit"; agentId: string; code: number | null }
   | { t: "toast"; level: "info" | "warn" | "error"; text: string };

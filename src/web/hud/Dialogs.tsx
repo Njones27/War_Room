@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { OPEN_OBJECTIVE_STATUSES, type AgentView, type ObjectiveStatus, type ObjectiveView, type Priority } from "../../shared/protocol";
 import { act, api } from "../lib/api";
-import { callsign, clock, modelTag, tokens, usageShare, usd } from "../lib/format";
+import { callsign, clock, dayTime, modelTag, tokens, usageShare, usd } from "../lib/format";
 import { DEFAULT_PREFS, type EffectsLevel, type Prefs, type Quality } from "../lib/prefs";
 import { isManaged, sortedAgents, useStore } from "../lib/store";
 import { EFFORT_OPTIONS } from "../../shared/models";
+import { isValidCron, nextCronRun } from "../../shared/cron";
+import { enterOrbit } from "../map/OrbitView";
 import { RoleGlyph } from "../map/MapView";
 import { Mascot } from "../sprites/Mascot";
 import { Icon, STATUS_LABEL, STATUS_PILL, StatusIcon } from "./icons";
@@ -955,6 +957,253 @@ export function SettingsDialog() {
             <Switch label="Screen decorations" on={prefs.decor} onChange={toggle("decor")} />
           </Setting>
         </section>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Launch a satellite (a scheduled task) ────────────────────────────────────
+
+type When = "hourly" | "daily" | "weekdays" | "weekly" | "once" | "manual" | "custom";
+const WHEN: { id: When; label: string }[] = [
+  { id: "hourly", label: "Hourly" },
+  { id: "daily", label: "Daily" },
+  { id: "weekdays", label: "Weekdays" },
+  { id: "weekly", label: "Weekly" },
+  { id: "once", label: "Once" },
+  { id: "manual", label: "By hand" },
+  { id: "custom", label: "Custom cron" },
+];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+interface ScheduleForm {
+  when: When;
+  time: string;
+  minute: string;
+  weekday: string;
+  once: string;
+  cron: string;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** datetime-local value for a timestamp. */
+const localInput = (ts: number) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+
+function scheduleFrom(s: { cron: string | null; fireAt: number | null } | null): ScheduleForm {
+  const base: ScheduleForm = { when: "daily", time: "08:00", minute: "0", weekday: "1", once: localInput(Date.now() + 3600_000), cron: "0 8 * * *" };
+  if (!s) return base;
+  if (s.fireAt) return { ...base, when: "once", once: localInput(s.fireAt) };
+  if (!s.cron) return { ...base, when: "manual" };
+  const c = s.cron.trim();
+  let m = c.match(/^(\d+) \* \* \* \*$/);
+  if (m) return { ...base, when: "hourly", minute: m[1]!, cron: c };
+  m = c.match(/^(\d+) (\d+) \* \* (\*|1-5|[0-7])$/);
+  if (m) {
+    const time = `${pad2(Number(m[2]))}:${pad2(Number(m[1]))}`;
+    if (m[3] === "*") return { ...base, when: "daily", time, cron: c };
+    if (m[3] === "1-5") return { ...base, when: "weekdays", time, cron: c };
+    return { ...base, when: "weekly", time, weekday: String(Number(m[3]) % 7), cron: c };
+  }
+  return { ...base, when: "custom", cron: c };
+}
+
+/** The form as { cron, fireAt }, or an error to show. */
+function scheduleOut(f: ScheduleForm): { cron: string | null; fireAt: number | null } | { error: string } {
+  const [h, mi] = f.time.split(":").map(Number);
+  const hm = `${mi ?? 0} ${h ?? 0}`;
+  switch (f.when) {
+    case "hourly":
+      return { cron: `${Math.min(59, Math.max(0, Number(f.minute) || 0))} * * * *`, fireAt: null };
+    case "daily":
+      return { cron: `${hm} * * *`, fireAt: null };
+    case "weekdays":
+      return { cron: `${hm} * * 1-5`, fireAt: null };
+    case "weekly":
+      return { cron: `${hm} * * ${f.weekday}`, fireAt: null };
+    case "once": {
+      const at = new Date(f.once).getTime();
+      if (!Number.isFinite(at)) return { error: "Pick a date and time." };
+      if (at <= Date.now()) return { error: "That time has already passed." };
+      return { cron: null, fireAt: at };
+    }
+    case "manual":
+      return { cron: null, fireAt: null };
+    case "custom":
+      return isValidCron(f.cron) ? { cron: f.cron.trim(), fireAt: null } : { error: "Use 5 fields: minute hour day month weekday, e.g. 30 9 * * 1-5" };
+  }
+}
+
+export function LaunchDialog() {
+  const open = useStore((s) => s.launchOpen);
+  const editId = useStore((s) => s.launchEdit);
+  const editing = useStore((s) => (s.launchEdit ? s.satellites[s.launchEdit] : undefined));
+  const roles = useStore((s) => s.roles);
+  const theater = useStore((s) => s.theater);
+  const set = useStore((s) => s.set);
+  const [roleId, setRoleId] = useState("recon");
+  const [name, setName] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("");
+  const [effort, setEffort] = useState("");
+  const [sched, setSched] = useState<ScheduleForm>(scheduleFrom(null));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setRoleId(editing?.role ?? (roles.some((r) => r.id === "recon") ? "recon" : (roles[0]?.id ?? "")));
+    setName(editing?.name ?? "");
+    setPrompt(editing?.prompt ?? "");
+    setModel(editing?.model ?? "");
+    setEffort(editing?.effort ?? "");
+    setSched(scheduleFrom(editing ?? null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editId]);
+
+  if (!open) return null;
+  const close = () => set({ launchOpen: false, launchEdit: null });
+  const role = roles.find((r) => r.id === roleId) ?? null;
+  const out = scheduleOut(sched);
+  const error = "error" in out ? out.error : null;
+  const next = "error" in out ? null : out.cron ? nextCronRun(out.cron, Date.now()) : out.fireAt;
+  const nextText = error ?? (next ? `Next run: ${dayTime(next)}` : "Runs only when you press Run now");
+  const patch = (p: Partial<ScheduleForm>) => setSched((s) => ({ ...s, ...p }));
+  const ready = Boolean(name.trim() && prompt.trim() && !error && !busy);
+
+  const save = async () => {
+    if (!ready || "error" in out) return;
+    setBusy(true);
+    const body = { name: name.trim(), prompt: prompt.trim(), role: role?.id ?? null, model: model.trim() || null, effort: effort || null, cron: out.cron, fireAt: out.fireAt };
+    const sat = await act(() => (editing ? api.updateSatellite(editing.id, body) : api.createSatellite(body)), editing ? `${body.name} saved` : `${body.name} launched`);
+    setBusy(false);
+    if (!sat) return;
+    close();
+    if (!editing) {
+      enterOrbit();
+      set({ launchedId: sat.id, selectedSatelliteId: sat.id });
+    }
+  };
+
+  return (
+    <Modal
+      title={editing ? "Edit satellite" : "Launch a satellite"}
+      size="deploy"
+      onClose={close}
+      foot={
+        <>
+          <span className={`note grow${error ? " warn-text" : ""}`} title="Each run is a fresh headless Claude Code session in this repo, on your Claude Code login. Nobody is there to approve prompts, so tools outside the role's allowed list are skipped.">
+            <Icon name="info" />
+            {nextText} · runs on your Claude Code login
+          </span>
+          <button className="btn ghost" onClick={close}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={!ready} onClick={() => void save()}>
+            {editing ? "Save" : "Launch"}
+          </button>
+        </>
+      }
+    >
+      <div className="deploy-split">
+        <div className="role-list" role="radiogroup" aria-label="Who runs it">
+          {roles.map((r) => (
+            <button key={r.id} role="radio" aria-checked={r.id === roleId} className={`role-item${r.id === roleId ? " active" : ""}`} onClick={() => setRoleId(r.id)} title={r.description}>
+              <RoleGlyph icon={r.icon} size={18} />
+              <b>{r.name}</b>
+              <small>{r.readOnly ? "Reads and reports" : r.title}</small>
+            </button>
+          ))}
+        </div>
+        <div className="modal-body deploy-form">
+          {role && (
+            <div className="role-head">
+              <Mascot accessory={role.accessory} activity="idle" scale={2.2} />
+              <div>
+                <b>{role.title} satellite</b>
+                <p>
+                  Runs in {theater?.name ?? "this repo"} with the {role.name}'s instructions and tools{role.readOnly ? ", read-only" : ""}.
+                </p>
+              </div>
+            </div>
+          )}
+          <label className="field">
+            <span>Name</span>
+            <input placeholder="e.g. Morning repo briefing" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} autoFocus />
+          </label>
+          <label className="field">
+            <span>What it should do</span>
+            <textarea placeholder="e.g. Summarize new commits and open PRs since the last run, and flag anything failing in CI." value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={8000} />
+          </label>
+          <div className="field">
+            <span>When</span>
+            <div className="chips when-chips" role="radiogroup" aria-label="When it runs">
+              {WHEN.map((w) => (
+                <button key={w.id} role="radio" aria-checked={sched.when === w.id} className={`chip${sched.when === w.id ? " on" : ""}`} onClick={() => patch({ when: w.id })}>
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {sched.when === "hourly" && (
+            <label className="field">
+              <span>Minute past the hour</span>
+              <input type="number" min="0" max="59" value={sched.minute} onChange={(e) => patch({ minute: e.target.value })} />
+            </label>
+          )}
+          {(sched.when === "daily" || sched.when === "weekdays" || sched.when === "weekly") && (
+            <div className={sched.when === "weekly" ? "grid2" : ""}>
+              {sched.when === "weekly" && (
+                <label className="field">
+                  <span>Day</span>
+                  <select value={sched.weekday} onChange={(e) => patch({ weekday: e.target.value })}>
+                    {WEEKDAYS.map((d, i) => (
+                      <option key={d} value={String(i)}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="field">
+                <span>Time</span>
+                <input type="time" value={sched.time} onChange={(e) => patch({ time: e.target.value })} />
+              </label>
+            </div>
+          )}
+          {sched.when === "once" && (
+            <label className="field">
+              <span>Date and time</span>
+              <input type="datetime-local" value={sched.once} onChange={(e) => patch({ once: e.target.value })} />
+            </label>
+          )}
+          {sched.when === "custom" && (
+            <label className="field">
+              <span>
+                Cron<em>minute hour day month weekday, local time</em>
+              </span>
+              <input className="mono" placeholder="30 9 * * 1-5" value={sched.cron} onChange={(e) => patch({ cron: e.target.value })} />
+            </label>
+          )}
+          <div className="grid2">
+            <div className="field">
+              <span>Model</span>
+              <ModelSelect value={model} onChange={setModel} defaultLabel={role?.model ? `Role default (${role.model})` : undefined} />
+            </div>
+            <label className="field">
+              <span>Effort</span>
+              <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+                {EFFORTS.map((x) => (
+                  <option key={x} value={x}>
+                    {x || (role?.effort ? `Role default (${role.effort})` : "Default")}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
       </div>
     </Modal>
   );

@@ -1,4 +1,4 @@
-import type { AgentView, ApprovalView, MissionView, ObjectiveStatus, ObjectiveView, OrderView, PermissionOverride, Priority, Settings, Snapshot, SupplyMode } from "../../shared/protocol";
+import type { AgentView, ApprovalView, MissionView, ObjectiveStatus, ObjectiveView, OrderView, PermissionOverride, Priority, SatelliteView, Settings, Snapshot, SupplyMode } from "../../shared/protocol";
 import { useStore } from "./store";
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -38,6 +38,17 @@ export interface DeployBody {
   objective?: { title: string; body?: string; targetPaths?: string[]; priority?: Priority } | null;
 }
 
+export interface SatelliteBody {
+  name: string;
+  prompt: string;
+  role?: string | null;
+  model?: string | null;
+  effort?: string | null;
+  cron?: string | null;
+  fireAt?: number | null;
+  enabled?: boolean;
+}
+
 export const api = {
   snapshot: () => call<Snapshot>("GET", "/api/snapshot"),
   deploy: (b: DeployBody) => call<AgentView>("POST", "/api/agents", b),
@@ -60,5 +71,12 @@ export const api = {
   decide: (id: string, approved: boolean, opts: { always?: boolean; note?: string } = {}) => call<ApprovalView>("POST", `/api/approvals/${id}`, { approved, ...opts }),
   rescan: () => call<{ ok: boolean }>("POST", "/api/city/rescan", {}),
   commsCheck: () => call("POST", "/api/comms-check", {}),
+  createSatellite: (b: SatelliteBody) => call<SatelliteView>("POST", "/api/satellites", b),
+  updateSatellite: (id: string, b: Partial<SatelliteBody>) => call<SatelliteView>("PATCH", `/api/satellites/${id}`, b),
+  deleteSatellite: (id: string) => call<{ ok: boolean }>("DELETE", `/api/satellites/${id}`),
+  runSatellite: (id: string) => call<SatelliteView>("POST", `/api/satellites/${id}/run`, {}),
+  stopSatellite: (id: string) => call<{ stopped: boolean }>("POST", `/api/satellites/${id}/stop`, {}),
+  pauseSatellite: (id: string) => call<SatelliteView>("POST", `/api/satellites/${id}/pause`, {}),
+  resumeSatellite: (id: string) => call<SatelliteView>("POST", `/api/satellites/${id}/resume`, {}),
   settings: (patch: { supplyMode?: SupplyMode; generalPicksModels?: boolean; permissionMode?: PermissionOverride }) => call<Settings>("PATCH", "/api/settings", patch),
 };

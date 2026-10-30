@@ -22,15 +22,12 @@ export function buildClaudeArgs(ctx: RunContext): string[] {
     ctx.sessionName,
     "--append-system-prompt-file",
     ctx.instructionsPath,
-    "--mcp-config",
-    ctx.mcpConfigPath,
-    "--permission-prompt-tool",
-    PERMISSION_TOOL,
     "--permission-mode",
     ctx.permissionMode,
   ];
+  if (!ctx.unattended) args.push("--mcp-config", ctx.mcpConfigPath, "--permission-prompt-tool", PERMISSION_TOOL);
   if (ctx.resumeSessionId) args.push("--resume", ctx.resumeSessionId);
-  if (ctx.strictMcp) args.push("--strict-mcp-config");
+  if (ctx.strictMcp && !ctx.unattended) args.push("--strict-mcp-config");
   if (ctx.model) args.push("--model", ctx.model);
   if (ctx.effort) args.push("--effort", ctx.effort);
   if (ctx.maxBudgetUsd !== null) args.push("--max-budget-usd", ctx.maxBudgetUsd.toFixed(2));
