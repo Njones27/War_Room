@@ -6,6 +6,7 @@ import type { CommsCheck } from "../shared/protocol.js";
 import type { WarRoomConfig } from "./config.js";
 import { cliPermissionMode, HqError, permissionOverrideOf, type HQ } from "./hq.js";
 import { buildInstructions } from "./prompts.js";
+import type { Orbit } from "./orbit.js";
 import type { Roles } from "./roles.js";
 import type { Scheduler } from "./scheduler.js";
 import type { PtyHost } from "./ptyHost.js";
@@ -70,6 +71,17 @@ const ObjectivePatchIn = z.object({
   effort: EFFORT.nullable().optional(),
 });
 
+const Satellite = z.object({
+  name: z.string().trim().min(1).max(80),
+  prompt: z.string().trim().min(1).max(8000),
+  role: z.string().max(40).nullish(),
+  model: z.string().max(80).nullish(),
+  effort: EFFORT.nullish(),
+  cron: z.string().max(120).nullish(),
+  fireAt: z.number().int().positive().nullish(),
+  enabled: z.boolean().optional(),
+});
+
 function parse<T>(schema: z.ZodType<T>, body: unknown): T {
   const r = schema.safeParse(body);
   if (!r.success) throw new HqError(r.error.issues.map((i) => `${i.path.join(".") || "body"}: ${i.message}`).join("; "));
@@ -87,6 +99,7 @@ export interface RouteDeps {
   takeCommand: TakeCommand;
   team: TeamOps;
   ptys: PtyHost;
+  orbit: Orbit;
   rescan: () => Promise<void>;
   recheck: () => Promise<CommsCheck>;
 }
@@ -186,6 +199,15 @@ export function registerRoutes(route: Route, d: RouteDeps): void {
       parse(z.object({ supplyMode: z.enum(["budget", "usage"]).optional(), generalPicksModels: z.boolean().optional(), permissionMode: z.enum(["auto", "plan", "manual"]).optional() }), body),
     ),
   );
+
+  // Satellites (scheduled tasks)
+  route("POST", "/api/satellites", ({ body }) => d.orbit.create(parse(Satellite, body)));
+  route("PATCH", "/api/satellites/:id", ({ params, body }) => d.orbit.update(params.id!, parse(Satellite.partial(), body)));
+  route("DELETE", "/api/satellites/:id", ({ params }) => d.orbit.remove(params.id!));
+  route("POST", "/api/satellites/:id/run", ({ params }) => d.orbit.runNow(params.id!));
+  route("POST", "/api/satellites/:id/stop", ({ params }) => ({ stopped: d.orbit.stop(params.id!) }));
+  route("POST", "/api/satellites/:id/pause", ({ params }) => d.orbit.pause(params.id!));
+  route("POST", "/api/satellites/:id/resume", ({ params }) => d.orbit.resume(params.id!));
 
   // Map + comms
   route("POST", "/api/city/rescan", async () => {

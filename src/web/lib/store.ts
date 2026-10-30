@@ -12,6 +12,8 @@ import type {
   OrderView,
   RoleView,
   RunView,
+  SatelliteRunView,
+  SatelliteView,
   ServerMsg,
   Settings,
   Snapshot,
@@ -80,8 +82,20 @@ interface State {
   commsCheck: CommsCheck | null;
   fronts: FrontView[];
   settings: Settings | null;
+  satellites: Record<string, SatelliteView>;
+  satelliteRuns: Record<string, SatelliteRunView>;
 
   // UI
+  /** The city map, or the Earth with the scheduled-task satellites. */
+  view: "city" | "orbit";
+  /** The dive back down to the city is under way. */
+  orbitLeaving: boolean;
+  selectedSatelliteId: string | null;
+  /** The LAUNCH dialog: a new satellite, or the id of one being edited. */
+  launchOpen: boolean;
+  launchEdit: string | null;
+  /** A satellite just created here, to fly up from HQ once it arrives. */
+  launchedId: string | null;
   selectedAgentId: string | null;
   /** The agent type picked in the DEPLOY dialog (none until you choose). */
   selectedRole: string | null;
@@ -141,6 +155,8 @@ function loadSnapshot(s: Snapshot): Partial<State> {
     commsCheck: s.commsCheck,
     fronts: s.fronts,
     settings: s.settings,
+    satellites: byId(s.satellites ?? []),
+    satelliteRuns: byId(s.satelliteRuns ?? []),
   };
 }
 
@@ -165,7 +181,15 @@ export const useStore = create<State>((set, get) => ({
   commsCheck: null,
   fronts: [],
   settings: null,
+  satellites: {},
+  satelliteRuns: {},
 
+  view: "city",
+  orbitLeaving: false,
+  selectedSatelliteId: null,
+  launchOpen: false,
+  launchEdit: null,
+  launchedId: null,
   selectedAgentId: null,
   selectedRole: null,
   hoverBuilding: null,
@@ -269,6 +293,18 @@ export const useStore = create<State>((set, get) => ({
         return;
       case "toast":
         get().toast(msg.level, msg.text);
+        return;
+      case "satellite":
+        set((s) => ({ satellites: { ...s.satellites, [msg.satellite.id]: msg.satellite } }));
+        return;
+      case "satellite_removed":
+        set((s) => {
+          const { [msg.id]: _gone, ...rest } = s.satellites;
+          return { satellites: rest, selectedSatelliteId: s.selectedSatelliteId === msg.id ? null : s.selectedSatelliteId };
+        });
+        return;
+      case "satellite_run":
+        set((s) => ({ satelliteRuns: { ...s.satelliteRuns, [msg.run.id]: msg.run } }));
         return;
       case "term":
       case "term_exit":

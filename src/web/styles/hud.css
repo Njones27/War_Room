@@ -653,7 +653,8 @@
   letter-spacing: 0.09em;
   color: var(--text);
   text-transform: uppercase;
-  max-width: 44rem;
+  /* Never wider than the gap between the header and the faction block. */
+  max-width: min(44rem, calc(100vw - 84rem));
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -662,10 +663,20 @@
 }
 
 /* ── Faction (top right) ──────────────────────────────────────────────────── */
-.faction {
+/* The faction block and everything under it share one column, so a taller
+   faction (the demo line, teammates) pushes the stack down instead of under it. */
+.faction-col {
   position: absolute;
   right: 4.7rem;
   top: 6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.9rem;
+  pointer-events: none;
+}
+.faction {
+  pointer-events: auto;
   display: flex;
   gap: 1.1rem;
   align-items: flex-start;
@@ -673,9 +684,6 @@
 }
 /* Under the faction block: MANAGE AGENTS, the SUPPLY toggle, then the COMMS ticker. */
 .side-stack {
-  position: absolute;
-  right: 4.7rem;
-  top: 11rem;
   width: 23rem;
   display: flex;
   flex-direction: column;
@@ -846,11 +854,20 @@
 }
 
 /* ── Bottom: role picker + deploy ─────────────────────────────────────────── */
-.deploy-bar {
+/* Agent bar and its caption, centred in the space between the squad panel and
+   DEPLOY so neither can run into them on a narrow window. */
+.deploy-dock {
   position: absolute;
-  left: 50%;
-  bottom: 7.2rem;
-  transform: translateX(-50%);
+  left: calc(4.8rem + 320px + 1.5rem);
+  right: calc(4.4rem + 22.5rem + 1.5rem);
+  bottom: 5.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+.deploy-bar {
   display: flex;
   align-items: center;
   gap: 0.2rem;
@@ -932,10 +949,6 @@
   pointer-events: auto;
 }
 .role-caption {
-  position: absolute;
-  left: 50%;
-  bottom: 5.4rem;
-  transform: translateX(-50%);
   font-size: max(1.05rem, 13px);
   letter-spacing: 0.1em;
   color: var(--text-dim);

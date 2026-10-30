@@ -19,7 +19,7 @@ export function DeployBar() {
       ? "Q / E to view your agents"
       : "Press SPACE to deploy your first agent";
   return (
-    <>
+    <div className="deploy-dock">
       <div className="deploy-bar" role="listbox" aria-label="Your agents">
         <button className="key" disabled={!list.length} onClick={() => cycleAgent(-1)} aria-label="Previous agent">
           Q
@@ -42,12 +42,22 @@ export function DeployBar() {
         </button>
       </div>
       <div className="role-caption">{caption.toUpperCase()}</div>
-    </>
+    </div>
   );
 }
 
 export function DeployButton() {
   const set = useStore((s) => s.set);
+  const orbit = useStore((s) => s.view === "orbit");
+  // In orbit the big button launches satellites (scheduled tasks) instead of agents.
+  if (orbit)
+    return (
+      <button className="deploy-btn tick-frame launch" onClick={() => set({ launchOpen: true, launchEdit: null })}>
+        <span>
+          LAUNCH<span className="key">SPACE</span>
+        </span>
+      </button>
+    );
   return (
     <button className="deploy-btn tick-frame" onClick={() => set({ deployOpen: true, selectedRole: null })}>
       <span>

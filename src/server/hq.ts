@@ -14,6 +14,8 @@ import type {
   Priority,
   Settings,
   PermissionOverride,
+  SatelliteRunView,
+  SatelliteView,
   Snapshot,
   SupplyMode,
   TheaterView,
@@ -44,6 +46,8 @@ export interface Providers {
   takeCommandAvailable: () => boolean;
   supplyMode: () => SupplyMode;
   version: string;
+  satellites?: () => SatelliteView[];
+  satelliteRuns?: () => SatelliteRunView[];
 }
 
 /** The permission mode every agent runs in (the HUD's PERMISSIONS switch). */
@@ -154,6 +158,8 @@ export class HQ {
       commsCheck: this.providers.commsCheck(),
       fronts: this.providers.fronts(),
       settings: this.settings(),
+      satellites: this.providers.satellites?.() ?? [],
+      satelliteRuns: this.providers.satelliteRuns?.() ?? [],
     };
   }
 

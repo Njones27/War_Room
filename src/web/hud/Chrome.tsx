@@ -4,10 +4,11 @@ import { act, api } from "../lib/api";
 import { onSubscription, pct, untilReset, usd } from "../lib/format";
 import { isManaged, markerState, pendingApprovals, sortedAgents, useStore } from "../lib/store";
 import { mapRef } from "../map/mapRef";
+import { toggleOrbit } from "../map/OrbitView";
 
 /** Screen furniture: ruler, dot fields, vignette, and the corner zoom buttons. */
 export function Frame() {
-  const zoom = (factor: number) => mapRef.map?.zoomBy(factor);
+  const zoom = (factor: number) => (useStore.getState().view === "orbit" ? mapRef.orbit?.zoomBy(factor) : mapRef.map?.zoomBy(factor));
   return (
     <>
       <div className="frame" aria-hidden>
@@ -88,6 +89,8 @@ function DragIcon() {
 export function Header() {
   const theater = useStore((s) => s.theater);
   const pingMode = useStore((s) => s.pingMode);
+  const orbit = useStore((s) => s.view === "orbit");
+  const satCount = useStore((s) => Object.keys(s.satellites).length);
   const set = useStore((s) => s.set);
   return (
     <>
@@ -108,12 +111,17 @@ export function Header() {
           <WheelIcon /> ZOOM
         </div>
         <div className="hint">
-          <DragIcon /> PAN
+          <DragIcon /> {orbit ? "ROTATE" : "PAN"}
         </div>
-        <button className={`hint${pingMode ? " active" : ""}`} onClick={() => set({ pingMode: !pingMode })}>
-          <span className="key">Z</span> PING
+        <button className="hint orbit-hint" onClick={() => toggleOrbit()}>
+          <span className="key">G</span> {orbit ? "BACK TO CITY" : `ORBIT${satCount ? ` · ${satCount}` : ""}`}
         </button>
-        <button className="hint" onClick={() => mapRef.map?.resetCamera()}>
+        {!orbit && (
+          <button className={`hint${pingMode ? " active" : ""}`} onClick={() => set({ pingMode: !pingMode })}>
+            <span className="key">Z</span> PING
+          </button>
+        )}
+        <button className="hint" onClick={() => (orbit ? mapRef.orbit?.resetCamera() : mapRef.map?.resetCamera())}>
           <span className="key">R</span> RESET CAMERA
         </button>
         <button className="hint" onClick={() => set({ objectivesOpen: true })}>
@@ -163,7 +171,7 @@ export function Faction() {
   const mates = Object.values(agents).filter((a) => a.teamLeadId).length;
   const ext = Object.values(agents).filter((a) => a.external).length;
   return (
-    <>
+    <div className="faction-col">
       <div className="faction">
         <div>
           <div className="hud-title">CLAUDE CORPS</div>
@@ -185,7 +193,7 @@ export function Faction() {
         <Supply />
         <Comms />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -309,7 +317,8 @@ export function PermissionsBar() {
 
 export function ZoomBox() {
   const pct = useStore((s) => s.zoomPct);
-  return <div className="zoom-box">{pct}%</div>;
+  const orbit = useStore((s) => s.view === "orbit");
+  return <div className="zoom-box">{orbit ? "ORBIT" : `${pct}%`}</div>;
 }
 
 export function Banner() {

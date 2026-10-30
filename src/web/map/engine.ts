@@ -52,6 +52,8 @@ export interface MapEvents {
   onClick(b: Building | null, world: { x: number; z: number }, ev: PointerEvent): void;
   onZoom(pct: number): void;
   onFrame(t: number): void;
+  /** Kept scrolling out at the widest view: leave for orbit. */
+  onZoomPastMax?(): void;
 }
 
 const TONES: Record<ZoneTone, number> = { cyan: 0x73ecf9, orange: 0xf5896b, yellow: 0xe6e873 };
@@ -72,6 +74,8 @@ const C = {
 };
 
 const COLLAPSE_SECONDS = 1.5;
+/** Room (px) around the city's outline for markers that sit past it: the HQ shortcuts stick out to the left. */
+const PAD = { left: 130, right: 40, top: 44, bottom: 40 };
 /** How long a pinged building stays lit once nothing is holding the ping. */
 const PING_MS = 15_000;
 
@@ -192,6 +196,12 @@ export class WarMap {
   private drag: { x: number; y: number; moved: boolean } | null = null;
   private resizeObserver: ResizeObserver;
   private lastZoomPct = -1;
+  private overscroll = 0;
+  /** Screen edges the HUD covers; the default view fits the city between them. */
+  private safe = { left: 0, right: 0, top: 0, bottom: 0 };
+  private safeOptions: { left: number; right: number; top: number; bottom: number }[] = [];
+  /** Orbit view covers the map: skip rendering. */
+  private paused = false;
   private readonly listeners = new AbortController();
 
   constructor(
@@ -686,19 +696,52 @@ export class WarMap {
     return this.world;
   }
 
+  /** What the default view frames: the city's outline (the white line), or the whole world before a city loads. */
+  private fitRect(): Rect | null {
+    const pts = this.city?.boundary;
+    if (!pts?.length) return this.extent();
+    const xs = pts.map((p) => p[0]);
+    const ys = pts.map((p) => p[1]);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+  }
+
   private computeFit(): void {
-    const b = this.extent();
+    const b = this.fitRect();
     if (!b) return;
-    const aspect = this.width / this.height;
-    // Whole playable area plus a band of camo, like the deploy screen at 78%.
-    const visibleH = Math.max(b.h, b.w / aspect) * 1.16;
+    // Whole playable area plus a band of camo, like the deploy screen at 78%,
+    // fitted into the part of the screen the HUD leaves free.
+    // Of the free areas the HUD leaves, use the one the city fills largest.
+    const scaleIn = (s: { left: number; right: number; top: number; bottom: number }) =>
+      Math.min((this.width - s.left - s.right - PAD.left - PAD.right) / b.w, (this.height - s.top - s.bottom - PAD.top - PAD.bottom) / b.h);
+    if (this.safeOptions.length) this.safe = this.safeOptions.reduce((best, s) => (scaleIn(s) > scaleIn(best) ? s : best));
+    const sw = Math.max(160, this.width - this.safe.left - this.safe.right - PAD.left - PAD.right);
+    const sh = Math.max(160, this.height - this.safe.top - this.safe.bottom - PAD.top - PAD.bottom);
+    const visibleH = Math.max((b.h * this.height) / sh, (b.w * this.height) / sw) * 1.06;
     this.fitDistance = visibleH / 2 / Math.tan(((FOV / 2) * Math.PI) / 180);
   }
 
+  /** Keep the default view clear of the HUD: candidate free areas as screen-edge insets in px. */
+  setSafeAreas(options: { left: number; right: number; top: number; bottom: number }[]): void {
+    const key = JSON.stringify(options.map((s) => [s.left, s.right, s.top, s.bottom].map(Math.round)));
+    if (key === this.safeKey) return;
+    this.safeKey = key;
+    const atHome = Math.abs(this.wantDistance - this.fitDistance) < this.fitDistance * 0.01;
+    this.safeOptions = options;
+    this.computeFit();
+    if (atHome) this.resetCamera();
+  }
+  private safeKey = "";
+
   resetCamera(instant = false): void {
-    const b = this.extent();
+    const b = this.fitRect();
     if (!b) return;
-    this.wantTarget.set(b.x + b.w / 2, 0, b.y + b.h / 2 + b.h * 0.02);
+    // Centre the city in the free area, not the whole screen.
+    const ppw = this.height / (2 * this.fitDistance * Math.tan(((FOV / 2) * Math.PI) / 180));
+    const dx = (this.safe.left + PAD.left - this.safe.right - PAD.right) / 2 / ppw;
+    const dz = (this.safe.top + PAD.top - this.safe.bottom - PAD.bottom) / 2 / ppw;
+    this.wantTarget.set(b.x + b.w / 2 - dx, 0, b.y + b.h / 2 + b.h * 0.02 - dz);
     this.wantDistance = this.fitDistance;
     if (instant) {
       this.target.copy(this.wantTarget);
@@ -715,6 +758,16 @@ export class WarMap {
     const before = sx !== undefined && sy !== undefined ? this.groundAt(sx, sy) : null;
     const min = this.fitDistance * 0.12;
     const max = this.fitDistance * 1.7;
+    // Scrolling on out past the widest view heads for orbit.
+    if (factor > 1 && this.wantDistance >= max - 1e-6) {
+      this.overscroll += Math.log(factor);
+      if (this.overscroll > 0.45) {
+        this.overscroll = 0;
+        this.events.onZoomPastMax?.();
+      }
+      return;
+    }
+    this.overscroll = 0;
     const next = Math.min(max, Math.max(min, this.wantDistance * factor));
     if (before) {
       // Keep the point under the cursor fixed while zooming.
@@ -723,6 +776,22 @@ export class WarMap {
       this.wantTarget.z += (before.z - this.wantTarget.z) * k;
     }
     this.wantDistance = next;
+  }
+
+  /** Rise far above the city (the start of the trip to orbit). */
+  pullBack(): void {
+    this.wantDistance = this.fitDistance * 6;
+  }
+
+  /** Come down from far above to the whole-city view. */
+  land(): void {
+    this.paused = false;
+    this.distance = this.fitDistance * 6;
+    this.resetCamera();
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
   }
 
   panBy(dxPx: number, dyPx: number): void {
@@ -791,14 +860,20 @@ export class WarMap {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     for (const m of this.lineMaterials) m.resolution.set(w, h);
+    // On the home view, stay on it as the window changes size.
+    const atHome = Math.abs(this.wantDistance - this.fitDistance) < this.fitDistance * 0.01;
     this.computeFit();
+    if (atHome) this.resetCamera();
   }
 
   private frame = (now: number) => {
     this.raf = requestAnimationFrame(this.frame);
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    const k = 1 - Math.exp(-dt * 9);
+    if (this.paused) return;
+    // Slower, smoother moves for the long climb to orbit and the way back down.
+    const far = this.distance > this.fitDistance * 2 || this.wantDistance > this.fitDistance * 2;
+    const k = 1 - Math.exp(-dt * (far ? 2.2 : 9));
     this.target.lerp(this.wantTarget, k);
     this.distance += (this.wantDistance - this.distance) * k;
     // A heavy round landing shakes the view a little.

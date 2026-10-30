@@ -1369,7 +1369,7 @@ button.obj-row:hover {
   display: none;
 }
 .war-room.intel-full .deploy-btn,
-.war-room.intel-full > :not(.map-view):not(.right-col):not(.approvals):not(.banner):not(.toasts):not(.modal-scrim):not(.locked) {
+.war-room.intel-full > :not(.map-view):not(.orbit-layer):not(.right-col):not(.approvals):not(.banner):not(.toasts):not(.modal-scrim):not(.locked) {
   visibility: hidden;
 }
 
@@ -2121,4 +2121,179 @@ tr:hover .quiet-model select,
   font-size: 12.5px;
   line-height: 1.45;
   color: var(--p-dim);
+}
+
+/* ── Orbit view ───────────────────────────────────────────────────────────── */
+/* Sits over the city map; fades in as the camera leaves the atmosphere. */
+.orbit-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.9s ease,
+    visibility 0s linear 0.9s;
+}
+.orbit-layer.on {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity 0.9s ease,
+    visibility 0s;
+}
+.orbit-gl,
+.orbit-ov {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.orbit-ov {
+  touch-action: none;
+}
+.orbit-empty {
+  position: absolute;
+  left: 50%;
+  bottom: 13rem;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 4px;
+  text-align: center;
+  padding: 12px 18px;
+  border: 1px solid var(--p-line-2);
+  border-radius: 6px;
+  background: var(--p-bg);
+  font: 14px/1.45 var(--ui-font);
+  color: var(--p-dim);
+  pointer-events: none;
+}
+.orbit-empty b {
+  font: 600 18px/1.1 var(--font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--p-text);
+}
+.war-room.in-orbit .map-tooltip {
+  display: none;
+}
+.deploy-btn.launch {
+  color: var(--cyan);
+}
+
+/* Satellite panel: the agent panel's frame without the cam. */
+.sat-panel .who b {
+  max-width: 100%;
+}
+.sat-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.sat-meta dt {
+  color: var(--p-faint);
+}
+.sat-meta dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--p-text);
+}
+.sat-meta dd.mono {
+  font: 12px/1.5 var(--mono);
+  color: var(--p-dim);
+}
+.live-text {
+  color: #8cc8ff !important;
+}
+.sat-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sat-actions .tbtn {
+  margin-left: auto;
+}
+.sat-note {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--p-dim);
+}
+.sat-note svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.sat-prompt {
+  padding: 12px 16px;
+  white-space: pre-wrap;
+  font-size: 13.5px;
+  color: var(--p-text);
+}
+.sat-runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sat-run {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  gap: 2px 8px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--p-line);
+  font-size: 13px;
+}
+.sat-run .mark {
+  color: var(--green);
+}
+.sat-run.bad .mark {
+  color: var(--orange);
+}
+.sat-run.live .mark {
+  color: #4aa8ff;
+}
+.sat-run.dim .mark {
+  color: var(--p-faint);
+}
+.sat-run .when em {
+  margin-left: 7px;
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--p-faint);
+}
+.sat-run .took {
+  color: var(--p-faint);
+  font-variant-numeric: tabular-nums;
+}
+.sat-run .what {
+  grid-column: 2 / 4;
+  color: var(--p-dim);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* Launch dialog schedule chips are buttons. */
+.when-chips .chip {
+  cursor: pointer;
+  font-weight: 600;
+}
+.when-chips .chip:hover {
+  color: var(--p-text);
+}
+.when-chips .chip.on {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(112, 235, 252, 0.1);
 }

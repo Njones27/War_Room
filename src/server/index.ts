@@ -19,6 +19,8 @@ import { cliPermissionMode, HQ, permissionOverrideOf, supplyModeOf } from "./hq.
 import { createMcpHandler } from "./mcp.js";
 import { layoutCity } from "./repo/layout.js";
 import { scanRepo } from "./repo/scan.js";
+import { defaultAppTaskSource } from "./claudeApp.js";
+import { Orbit } from "./orbit.js";
 import { Roles } from "./roles.js";
 import { registerRoutes } from "./routes.js";
 import { Scheduler } from "./scheduler.js";
@@ -135,6 +137,14 @@ async function main(): Promise<void> {
     return comms;
   };
 
+  const noteRateLimit = (info: RateLimitInfo) => {
+    // An event that doesn't carry a window keeps the last reading for it.
+    const prev = comms.rateLimit;
+    const merged: RateLimitInfo = { ...info, fiveHour: info.fiveHour ?? prev?.fiveHour ?? null, sevenDay: info.sevenDay ?? prev?.sevenDay ?? null };
+    comms = { ...comms, rateLimit: merged };
+    store.setSetting("rateLimit", JSON.stringify(merged));
+    bus.emit({ t: "comms_check", check: comms });
+  };
   const approvals = new Approvals(store, config.approvalTimeoutMs);
   let toolkit: Toolkit | null = null;
   const adapter = config.demo
@@ -154,14 +164,19 @@ async function main(): Promise<void> {
     supplyMode,
     permissionMode,
     demolition,
-    onRateLimit: (info) => {
-      // An event that doesn't carry a window keeps the last reading for it.
-      const prev = comms.rateLimit;
-      const merged: RateLimitInfo = { ...info, fiveHour: info.fiveHour ?? prev?.fiveHour ?? null, sevenDay: info.sevenDay ?? prev?.sevenDay ?? null };
-      comms = { ...comms, rateLimit: merged };
-      store.setSetting("rateLimit", JSON.stringify(merged));
-      bus.emit({ t: "comms_check", check: comms });
-    },
+    onRateLimit: (info) => noteRateLimit(info),
+  });
+  const orbit = new Orbit({
+    db,
+    bus,
+    roles,
+    adapter,
+    config,
+    theater: () => theater,
+    permissionMode,
+    onRateLimit: noteRateLimit,
+    appTasks: config.demo ? null : defaultAppTaskSource(),
+    demo: config.demo,
   });
   const ptys = new PtyHost(bus, config.claudeBin);
   await ptys.init();
@@ -194,6 +209,8 @@ async function main(): Promise<void> {
     takeCommandAvailable: () => ptys.available && !config.demo,
     supplyMode,
     version: VERSION,
+    satellites: () => orbit.list(),
+    satelliteRuns: () => orbit.runs(),
   });
   hq.attachTeam(team);
   toolkit = new Toolkit(hq, store, scheduler, approvals);
@@ -218,7 +235,7 @@ async function main(): Promise<void> {
       if (msg.t === "term_input" && typeof msg.data === "string") ptys.write(msg.agentId, msg.data);
       else if (msg.t === "term_resize") ptys.resize(msg.agentId, msg.cols, msg.rows);
     },
-    routes: (route) => registerRoutes(route, { config, hq, store, roles, scheduler, takeCommand, team, ptys, rescan, recheck }),
+    routes: (route) => registerRoutes(route, { config, hq, store, roles, scheduler, takeCommand, team, ptys, orbit, rescan, recheck }),
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -252,6 +269,7 @@ async function main(): Promise<void> {
   );
 
   scheduler.start();
+  orbit.start();
   team.start();
   watch?.start();
   const commsTimer = setInterval(() => void recheck(), 120_000);
@@ -266,6 +284,7 @@ async function main(): Promise<void> {
     closing = true;
     console.log("\n  Standing down…");
     scheduler.stopAll();
+    orbit.stopAll();
     team.stopAll();
     ptys.stopAll();
     watch?.stop();

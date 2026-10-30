@@ -109,3 +109,23 @@ export function untilReset(resetsAt: number | null, now = Date.now()): string | 
 
 /** Whether the login draws on a Claude subscription's plan usage. */
 export const onSubscription = (c: { subscription: string | null; authMethod: string | null } | null) => Boolean(c && (c.subscription || c.authMethod === "claude.ai"));
+
+/** "Today 08:00", "Tomorrow 08:00", "Yesterday 17:02" or "Oct 30 08:00". */
+export function dayTime(ts: number, now = Date.now()): string {
+  const d = new Date(ts);
+  const day = (t: number) => Math.floor((t - new Date(t).getTimezoneOffset() * 60_000) / 86_400_000);
+  const diff = day(ts) - day(now);
+  const time = clock(ts);
+  if (diff === 0) return `Today ${time}`;
+  if (diff === 1) return `Tomorrow ${time}`;
+  if (diff === -1) return `Yesterday ${time}`;
+  return `${d.toLocaleString("en-US", { month: "short" })} ${d.getDate()} ${time}`;
+}
+
+/** "45s", "1m 48s", "2h 05m". */
+export function duration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}

@@ -7,6 +7,8 @@ import { markerState, pendingApprovals, useStore, type MarkerState } from "../li
 import { Mascot, type MascotActivity } from "../sprites/Mascot";
 import { locate, WarMap, zoneRect, type Zone, type ZoneTone } from "./engine";
 import { mapRef } from "./mapRef";
+import { enterOrbit } from "./OrbitView";
+import { measureSafeAreas } from "./safeArea";
 
 interface Mover {
   x: number;
@@ -156,9 +158,11 @@ export function MapView() {
         if (b && !ev.shiftKey) st.set({ focusPath: b.path });
       },
       onZoom: (pct) => useStore.getState().set({ zoomPct: pct }),
+      onZoomPastMax: () => enterOrbit(),
       onFrame: (t) => tick(t),
     });
     mapRef.map = map;
+    if (import.meta.env.DEV) (window as unknown as { __map?: WarMap }).__map = map;
     map.setPrefs(useStore.getState().prefs);
     const walkToPost = (id: string, m: Mover) => {
       const post = postsRef.current.get(id);
@@ -245,6 +249,34 @@ export function MapView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Fit the default view between the HUD panels; refit when the window or HUD changes size.
+  useEffect(() => {
+    const update = () => {
+      const c = canvasRef.current;
+      if (c && mapRef.map) mapRef.map.setSafeAreas(measureSafeAreas(c.getBoundingClientRect()));
+    };
+    const t = setTimeout(update, 300);
+    const ro = new ResizeObserver(update);
+    ro.observe(document.body);
+    // The squad panel grows and shrinks (collapse, more agents): refit when it does.
+    const watch = setInterval(() => {
+      for (const sel of [".roster-panel", ".side-stack", ".deploy-dock"]) {
+        const el = document.querySelector(sel);
+        if (el && !(el as HTMLElement).dataset.fitWatched) {
+          (el as HTMLElement).dataset.fitWatched = "1";
+          ro.observe(el);
+        }
+      }
+    }, 1000);
+    window.addEventListener("resize", update);
+    return () => {
+      clearTimeout(t);
+      clearInterval(watch);
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
   // Display preferences: render quality, effects level, aircraft on or off.
   useEffect(() => {
     mapRef.map?.setPrefs(prefs);
@@ -253,12 +285,23 @@ export function MapView() {
   const positionStatic = (map: WarMap) => {
     const c = useStore.getState().city;
     if (!c) return;
+    // Pins never sit on top of each other.
+    const placed: { el: HTMLDivElement; x: number; y: number }[] = [];
     for (const [id, el] of pinEls.current) {
       const o = useStore.getState().objectives[id];
       const at = o ? locate(c, o.targetPaths[0] ?? null) : null;
       if (!at) continue;
       const p = map.project(at.x, at.top + 0.5, at.z);
-      el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+      placed.push({ el, x: p.x, y: p.y });
+    }
+    // Slide a pin right until it clears the ones already placed (pins are 22px).
+    placed.sort((a, b) => a.y - b.y || a.x - b.x);
+    const taken: { x: number; y: number }[] = [];
+    for (const p of placed) {
+      let x = p.x;
+      for (let n = 0; n < 12 && taken.some((t) => Math.abs(t.x - x) < 24 && Math.abs(t.y - p.y) < 24); n++) x += 25;
+      taken.push({ x, y: p.y });
+      p.el.style.transform = `translate3d(${x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
     }
     const hq = c.hq.rect;
     if (hqEl.current) {

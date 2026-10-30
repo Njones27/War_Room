@@ -60,6 +60,16 @@ create table if not exists wakes (
   note text, created_at integer not null
 );
 create table if not exists settings (key text primary key, value text not null);
+create table if not exists satellites (
+  id text primary key, theater_id text not null, name text not null, prompt text not null, role text,
+  model text, effort text, cron text, fire_at integer, enabled integer not null default 1,
+  next_run_at integer, last_run_at integer, created_at integer not null, updated_at integer not null
+);
+create table if not exists satellite_runs (
+  id text primary key, satellite_id text not null, trigger text not null, status text not null,
+  started_at integer not null, ended_at integer, summary text, error text, cost_usd real not null default 0
+);
+create index if not exists satellite_runs_sat on satellite_runs(satellite_id, started_at);
 `;
 
 /** Columns added after the first release: [table, column, definition]. */
