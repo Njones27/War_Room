@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import type { RateLimitInfo, RunStatus, SatelliteRunView, SatelliteView, TheaterView } from "../shared/protocol.js";
+import type { RateLimitInfo, RunStatus, SatelliteRunView, SatelliteView, SupplyMode, TheaterView } from "../shared/protocol.js";
 import { toolActivity } from "./activity.js";
 import type { AgentAdapter, RunExit, RunHandle } from "./adapters/types.js";
 import type { Bus } from "./bus.js";
@@ -29,6 +29,8 @@ export interface OrbitDeps {
   config: WarRoomConfig;
   theater: () => TheaterView;
   permissionMode: () => string;
+  /** In "budget" mode every run is capped (the role's budget); defaults to "usage". */
+  supplyMode?: () => SupplyMode;
   onRateLimit?: (info: RateLimitInfo) => void;
   /** The Claude app's Scheduled tasks; null leaves them out. */
   appTasks: AppTaskSource | null;
@@ -61,11 +63,15 @@ interface LiveRun {
   resultSubtype: string | null;
   costUsd: number;
   runDir: string | null;
+  /** The run's spend cap in budget mode. */
+  capUsd: number | null;
 }
 
 /** Satellite runs allowed at once (they share plan usage with the squad). */
 const MAX_LIVE = 2;
 const RUNS_KEPT = 30;
+/** Per-run cap in budget mode for a satellite whose role sets none. */
+const DEFAULT_RUN_BUDGET_USD = 2;
 
 const str = (v: SQLInputValue | undefined) => (v === null || v === undefined ? "" : String(v));
 const strOrNull = (v: SQLInputValue | undefined) => (v === null || v === undefined ? null : String(v));
@@ -332,7 +338,7 @@ export class Orbit {
     this.d.db
       .prepare("delete from satellite_runs where satellite_id = ? and id not in (select id from satellite_runs where satellite_id = ? order by started_at desc limit ?)")
       .run(id, id, RUNS_KEPT);
-    const run: LiveRun = { runId, satelliteId: id, handle: null, timers: [], stopped: false, activity: "Starting", lastPush: 0, summary: null, error: null, resultSubtype: null, costUsd: 0, runDir: null };
+    const run: LiveRun = { runId, satelliteId: id, handle: null, timers: [], stopped: false, activity: "Starting", lastPush: 0, summary: null, error: null, resultSubtype: null, costUsd: 0, runDir: null, capUsd: null };
     this.live.set(id, run);
     this.pushRun(runId);
     this.emit(id);
@@ -341,6 +347,8 @@ export class Orbit {
     try {
       const theater = this.d.theater();
       const role = r.role ? this.d.roles.get(str(r.role)) : null;
+      // Budget mode caps each run like a sortie: the role's budget, or a small default.
+      run.capUsd = this.d.supplyMode?.() === "budget" ? (role?.budgetUsd ?? DEFAULT_RUN_BUDGET_USD) : null;
       const runDir = path.join(this.d.config.runDir, runId);
       run.runDir = runDir;
       fs.mkdirSync(runDir, { recursive: true, mode: 0o700 });
@@ -359,7 +367,7 @@ export class Orbit {
           permissionMode: this.d.permissionMode(),
           model: strOrNull(r.model) ?? role?.model ?? null,
           effort: strOrNull(r.effort) ?? role?.effort ?? null,
-          maxBudgetUsd: null,
+          maxBudgetUsd: run.capUsd,
           allowedTools: (role?.allowedTools ?? ["Read", "Grep", "Glob"]).filter((t) => !t.startsWith("mcp__warroom")),
           disallowedTools: role?.disallowedTools ?? [],
           sessionName: `War Room · Satellite · ${str(r.name)}`,
@@ -418,7 +426,7 @@ export class Orbit {
     for (const t of run.timers) clearTimeout(t);
     const ok = exit.code === 0 && !run.error && (run.resultSubtype === null || run.resultSubtype === "success");
     const status: RunStatus = run.stopped ? "cancelled" : ok ? "completed" : "failed";
-    let error = run.error;
+    let error = run.resultSubtype === "error_max_budget_usd" && run.capUsd !== null ? `Stopped at its $${run.capUsd.toFixed(2)} budget cap` : run.error;
     if (status === "failed" && !error) {
       const lastLine = exit.stderrTail.trim().split("\n").filter(Boolean).pop();
       error = lastLine ? truncate(lastLine, 300) : `claude exited with code ${exit.code ?? exit.signal ?? "?"}`;

@@ -126,6 +126,18 @@ interface State {
 }
 
 const FEED_LIMIT = 160;
+/** Runs kept per satellite, as on the server. */
+const SATELLITE_RUNS_KEPT = 30;
+
+/** Drop a satellite's oldest runs past the limit. */
+export function keepRecentRuns(runs: Record<string, SatelliteRunView>, satelliteId: string): Record<string, SatelliteRunView> {
+  const mine = Object.values(runs)
+    .filter((r) => r.satelliteId === satelliteId)
+    .sort((a, b) => b.startedAt - a.startedAt);
+  if (mine.length <= SATELLITE_RUNS_KEPT) return runs;
+  const drop = new Set(mine.slice(SATELLITE_RUNS_KEPT).map((r) => r.id));
+  return Object.fromEntries(Object.entries(runs).filter(([id]) => !drop.has(id)));
+}
 let toastSeq = 0;
 
 const byId = <T extends { id: string }>(list: T[]) => Object.fromEntries(list.map((x) => [x.id, x]));
@@ -300,11 +312,12 @@ export const useStore = create<State>((set, get) => ({
       case "satellite_removed":
         set((s) => {
           const { [msg.id]: _gone, ...rest } = s.satellites;
-          return { satellites: rest, selectedSatelliteId: s.selectedSatelliteId === msg.id ? null : s.selectedSatelliteId };
+          const satelliteRuns = Object.fromEntries(Object.entries(s.satelliteRuns).filter(([, r]) => r.satelliteId !== msg.id));
+          return { satellites: rest, satelliteRuns, selectedSatelliteId: s.selectedSatelliteId === msg.id ? null : s.selectedSatelliteId };
         });
         return;
       case "satellite_run":
-        set((s) => ({ satelliteRuns: { ...s.satelliteRuns, [msg.run.id]: msg.run } }));
+        set((s) => ({ satelliteRuns: keepRecentRuns({ ...s.satelliteRuns, [msg.run.id]: msg.run }, msg.run.satelliteId) }));
         return;
       case "term":
       case "term_exit":

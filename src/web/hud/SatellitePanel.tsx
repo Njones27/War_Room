@@ -39,7 +39,10 @@ export function SatellitePanel() {
   const roles = useStore((s) => s.roles);
   const set = useStore((s) => s.set);
   const [tab, setTab] = useState<"runs" | "prompt">("runs");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const now = useNow(1000);
+  // A pending delete never carries over to another satellite.
+  useEffect(() => setConfirmDelete(false), [id]);
 
   if (!sat) return null;
   const own = sat.source === "warroom";
@@ -131,10 +134,22 @@ export function SatellitePanel() {
             <MoreMenu
               down
               label={`More actions for ${sat.name}`}
-              items={[{ label: "Delete satellite", danger: true, onClick: () => void act(() => api.deleteSatellite(sat.id), `${sat.name} deleted`) }]}
+              items={[{ label: "Delete satellite…", danger: true, onClick: () => setConfirmDelete(true) }]}
             />
           </div>
-        ) : (
+        ) : null}
+        {own && confirmDelete && (
+          <div className="sat-confirm" role="alertdialog" aria-label="Delete satellite">
+            <span>Delete {sat.name} and its run history? This can't be undone.</span>
+            <button className="btn sm ghost" onClick={() => setConfirmDelete(false)}>
+              Cancel
+            </button>
+            <button className="btn sm danger" onClick={() => void act(() => api.deleteSatellite(sat.id), `${sat.name} deleted`)}>
+              Delete
+            </button>
+          </div>
+        )}
+        {!own && (
           <p className="sat-note">
             <Icon name="info" />
             Read-only here. Change or run it from Scheduled tasks in the Claude app.

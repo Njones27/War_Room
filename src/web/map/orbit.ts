@@ -250,6 +250,8 @@ export class OrbitScene {
   private readonly ctx: CanvasRenderingContext2D;
   private readonly world = new Group();
   private readonly earthMat: ShaderMaterial;
+  /** Coastline textures: loading, loaded, or failed (tried again on the next trip up). */
+  private textures: "loading" | "ready" | "failed" = "failed";
   private readonly latticeMat: LineMaterial;
   private readonly lattice: LineSegments2;
   private readonly packetMat: LineMaterial;
@@ -310,10 +312,7 @@ export class OrbitScene {
       fragmentShader: EARTH_FRAG,
     });
     // Coastlines arrive a moment later (their data loads on first use).
-    void loadEarthTextures().then((t) => {
-      this.earthMat.uniforms.uLand!.value = t.land;
-      this.earthMat.uniforms.uLights!.value = t.lights;
-    });
+    this.loadTextures();
     const earth = new Mesh(new SphereGeometry(1, 160, 120), this.earthMat);
     const glow = (r: number, color: number, power: number, gain: number) =>
       new Mesh(
@@ -363,6 +362,22 @@ export class OrbitScene {
     const g = new BufferGeometry();
     g.setAttribute("position", new Float32BufferAttribute(pos, 3));
     return new Points(g, new PointsMaterial({ color: 0xbfd6de, size: 1.4, sizeAttenuation: false, transparent: true, opacity: 0.7, depthWrite: false }));
+  }
+
+  private loadTextures(): void {
+    if (this.textures !== "failed") return;
+    this.textures = "loading";
+    loadEarthTextures().then(
+      (t) => {
+        this.earthMat.uniforms.uLand!.value = t.land;
+        this.earthMat.uniforms.uLights!.value = t.lights;
+        this.textures = "ready";
+      },
+      (err: unknown) => {
+        this.textures = "failed";
+        console.warn("Orbit view: couldn't load the coastlines", err);
+      },
+    );
   }
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -443,6 +458,7 @@ export class OrbitScene {
   /** Pull back from just above HQ to the whole Earth. */
   enter(): void {
     this.start();
+    this.loadTextures();
     const from = this.hqCam(1.045);
     const to: Cam = { az: from.az + 0.32, el: from.el * 0.45, dist: this.homeDist() };
     this.cam = { ...from };

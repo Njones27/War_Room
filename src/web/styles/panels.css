@@ -2297,3 +2297,17 @@ tr:hover .quiet-model select,
   color: var(--cyan);
   background: rgba(112, 235, 252, 0.1);
 }
+.sat-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 9px 11px;
+  border: 1px solid rgba(253, 134, 100, 0.45);
+  border-radius: var(--r);
+  background: rgba(120, 40, 30, 0.25);
+  font-size: 13px;
+}
+.sat-confirm span {
+  flex: 1 1 100%;
+}

@@ -174,6 +174,7 @@ async function main(): Promise<void> {
     config,
     theater: () => theater,
     permissionMode,
+    supplyMode,
     onRateLimit: noteRateLimit,
     appTasks: config.demo ? null : defaultAppTaskSource(),
     demo: config.demo,

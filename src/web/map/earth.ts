@@ -84,7 +84,11 @@ let earth: Promise<EarthTextures> | null = null;
 
 /** Built once and shared; call early (when idle) so the trip to orbit doesn't stall on it. */
 export function loadEarthTextures(): Promise<EarthTextures> {
-  earth ??= buildEarthTextures();
+  // A failed load (e.g. the data chunk didn't arrive) isn't kept, so the next call tries again.
+  earth ??= buildEarthTextures().catch((err: unknown) => {
+    earth = null;
+    throw err;
+  });
   return earth;
 }
 

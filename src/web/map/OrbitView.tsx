@@ -76,7 +76,11 @@ export function OrbitView() {
     mapRef.map?.pullBack();
     scene.enter();
     const show = setTimeout(() => setShown(true), 300);
-    const pause = setTimeout(() => mapRef.map?.setPaused(true), 1600);
+    // Stop drawing the city once it's covered, unless we're already heading back down.
+    const pause = setTimeout(() => {
+      const s = useStore.getState();
+      if (s.view === "orbit" && !s.orbitLeaving) mapRef.map?.setPaused(true);
+    }, 1600);
     return () => {
       clearTimeout(show);
       clearTimeout(pause);

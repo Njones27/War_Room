@@ -11,7 +11,8 @@ import { describeCron, nextCronRun, parseCron } from "../src/shared/cron.js";
 import { openDatabase } from "../src/server/db.js";
 import { Orbit } from "../src/server/orbit.js";
 import { Roles } from "../src/server/roles.js";
-import type { ServerMsg, TheaterView } from "../src/shared/protocol.js";
+import type { SatelliteRunView, ServerMsg, TheaterView } from "../src/shared/protocol.js";
+import { keepRecentRuns } from "../src/web/lib/store.js";
 
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime();
 
@@ -195,6 +196,24 @@ describe("orbit", () => {
     expect(events.some((m) => m.t === "satellite_removed" && m.id === s.id)).toBe(true);
   });
 
+  it("caps each run in budget mode and says so when the cap stops it", () => {
+    let mode: "budget" | "usage" = "usage";
+    (orbit as unknown as { d: { supplyMode: () => string } }).d.supplyMode = () => mode;
+    const s = orbit.create({ name: "Audit", prompt: "Audit deps", role: "security" });
+    orbit.runNow(s.id);
+    expect(adapter.runs[0]!.ctx.maxBudgetUsd).toBeNull();
+    adapter.finish(0);
+    mode = "budget";
+    now += 60_000;
+    orbit.runNow(s.id);
+    expect(adapter.runs[1]!.ctx.maxBudgetUsd).toBe(5); // the Security role's budget
+    const r = adapter.runs[1]!;
+    r.hooks.onEvent({ kind: "result", subtype: "error_max_budget_usd", isError: true, totalCostUsd: 5, numTurns: 9, durationMs: 1, resultText: "", usage: { input: 1, output: 1, cacheRead: 0, cacheCreation: 0 }, sessionId: null });
+    r.hooks.onExit({ code: 0, signal: null, stderrTail: "" });
+    expect(orbit.runs()[0]!.status).toBe("failed");
+    expect(orbit.runs()[0]!.error).toBe("Stopped at its $5.00 budget cap");
+  });
+
   it("marks a run failed when Claude exits with an error", () => {
     const s = orbit.create({ name: "A", prompt: "B" });
     expect(s.scheduleText).toBe("Run by hand");
@@ -256,5 +275,19 @@ describe("Claude app tasks", () => {
     expect(bare.name).toBe("No schedule");
     expect(bare.scheduleText).toBe("Set in the Claude app");
     fs.rmSync(home, { recursive: true, force: true });
+  });
+});
+
+describe("satellite runs in the browser", () => {
+  it("keep only each satellite's 30 newest runs", () => {
+    const run = (i: number, sat: string): SatelliteRunView => ({ id: `${sat}-${i}`, satelliteId: sat, trigger: "schedule", status: "completed", startedAt: i, endedAt: i + 1, summary: null, error: null, costUsd: 0 });
+    const runs: Record<string, SatelliteRunView> = {};
+    for (let i = 0; i < 35; i++) runs[`a-${i}`] = run(i, "a");
+    runs["b-0"] = run(0, "b");
+    const kept = keepRecentRuns(runs, "a");
+    expect(Object.values(kept).filter((r) => r.satelliteId === "a")).toHaveLength(30);
+    expect(kept["a-4"]).toBeUndefined();
+    expect(kept["a-5"]).toBeDefined();
+    expect(kept["b-0"]).toBeDefined();
   });
 });
